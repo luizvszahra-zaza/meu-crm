@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import time, io, urllib.parse
+import time, io, urllib.parse, os
 from datetime import datetime
 from fpdf import FPDF
 import streamlit.components.v1 as components
@@ -10,27 +10,32 @@ from streamlit_gsheets import GSheetsConnection
 COR_LARANJA, COR_PRETO = "#FF8C00", "#1A1A1A"
 CAL_ID = "luizvszahra@gmail.com"
 
-# --- CONEXÃO COM O GOOGLE SHEETS ---
+# --- CONEXÃO COM O GOOGLE SHEETS (COM LIMPEZA DE CACHE REMOVIDO/FORÇADO) ---
 def carregar_aba_sheets(nome_aba, colunas_padrao):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet=nome_aba, ttl="0")
+        # Usamos st.cache_data.clear() no botão para forçar o reset, ttl=0 garante leitura direta
+        df = conn.read(worksheet=nome_aba, ttl=0)
         if df.empty:
             return pd.DataFrame(columns=colunas_padrao)
+        # Limpar espaços extras nos nomes das colunas para evitar erros de leitura
+        df.columns = df.columns.str.strip()
         return df.fillna("").astype(str)
-    except:
+    except Exception as e:
         return pd.DataFrame(columns=colunas_padrao)
 
 def salvar_no_sheets(nome_aba, novo_df, colunas_padrao):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         try:
-            df_atual = conn.read(worksheet=nome_aba, ttl="0")
+            df_atual = conn.read(worksheet=nome_aba, ttl=0)
+            df_atual.columns = df_atual.columns.str.strip()
         except:
             df_atual = pd.DataFrame(columns=colunas_padrao)
             
         df_final = pd.concat([df_atual, novo_df], ignore_index=True)
         conn.update(worksheet=nome_aba, data=df_final)
+        st.cache_data.clear() # Limpa o cache após salvar
         return True
     except Exception as e:
         st.error("Erro ao salvar na nuvem: " + str(e))
@@ -39,10 +44,12 @@ def salvar_no_sheets(nome_aba, novo_df, colunas_padrao):
 def atualizar_status_sheets(nome_aba, id_registro, novo_status, colunas_padrao):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet=nome_aba, ttl="0")
+        df = conn.read(worksheet=nome_aba, ttl=0)
+        df.columns = df.columns.str.strip()
         if not df.empty and "ID" in df.columns:
             df.loc[df["ID"].astype(str) == str(id_registro), "Status"] = novo_status
             conn.update(worksheet=nome_aba, data=df)
+            st.cache_data.clear()
             return True
         return False
     except:
@@ -169,6 +176,15 @@ st.markdown(f"""
 
 with st.sidebar:
     st.title("⚡ Técnico Zahra")
+    
+    # BOTÃO MANUAL DE LIMPEZA DE CACHE
+    if st.button("🔄 Atualizar Banco de Dados"):
+        st.cache_data.clear()
+        st.success("Dados sincronizados!")
+        time.sleep(0.5)
+        st.rerun()
+        
+    st.divider()
     aba = st.radio(
         "Navegação", 
         ["🏠 Painel Principal", "👥 Clientes", "🛠️ Agenda", "💰 Novo Orçamento", "📊 Histórico"],
@@ -180,7 +196,7 @@ if aba == "🏠 Painel Principal":
     st.title("🚀 Dashboard Técnico Zahra")
     df_o = carregar_aba_sheets("orcamentos", ["ID", "Data", "Cliente", "Total", "Status", "Apresentacao", "Itens_JSON"])
     fat = pend = 0
-    if not df_o.empty:
+    if not df_o.empty and "Total" in df_o.columns:
         df_o["Total"] = pd.to_numeric(df_o["Total"], errors='coerce').fillna(0)
         fat = df_o[df_o["Status"] == "Aprovado"]["Total"].sum()
         pend = df_o[df_o["Status"] == "Pendente"]["Total"].sum()
@@ -205,7 +221,7 @@ if aba == "🏠 Painel Principal":
     with c_age:
         st.subheader("📌 Próximas Visitas")
         df_v = carregar_aba_sheets("visitas", ["ID_V", "Cliente", "Data", "Hora", "Descricao", "Endereco", "Checklist"])
-        if not df_v.empty:
+        if not df_v.empty and "Cliente" in df_v.columns:
             for _, r in df_v.tail(5).iloc[::-1].iterrows():
                 with st.container(border=True):
                     st.write("⏰ **" + str(r['Data']) + " - " + str(r['Hora']) + "**\n👤 " + str(r['Cliente']))
@@ -219,7 +235,7 @@ elif aba == "🛠️ Agenda":
     df_cl = carregar_aba_sheets("clientes", ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
     v_ed = st.session_state.vis_edit
     
-    if not df_cl.empty:
+    if not df_cl.empty and "Nome" in df_cl.columns:
         with st.form("f_vis"):
             c_sel = st.selectbox("Cliente", df_cl["Nome"], index=list(df_cl["Nome"]).index(v_ed["Cliente"]) if v_ed else 0)
             d_in = st.date_input("Data", value=datetime.strptime(v_ed["Data"], '%d/%m/%Y') if v_ed else datetime.now())
@@ -253,7 +269,7 @@ elif aba == "🛠️ Agenda":
 
     st.divider()
     df_vl = carregar_aba_sheets("visitas", ["ID_V", "Cliente", "Data", "Hora", "Descricao", "Endereco", "Checklist"])
-    if not df_vl.empty:
+    if not df_vl.empty and "Cliente" in df_vl.columns:
         for i, r in df_vl.iloc[::-1].iterrows():
             with st.container(border=True):
                 st.write("**" + str(r['Data']) + " - " + str(r['Hora']) + "** | " + str(r['Cliente']) + "\n📍 [Maps](" + calc_maps(r['Endereco']) + ")")
@@ -263,7 +279,7 @@ elif aba == "💰 Novo Orçamento":
     st.title("💰 Criar Orçamento")
     df_cl = carregar_aba_sheets("clientes", ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
     e_dt = st.session_state.orc_edit
-    if not df_cl.empty:
+    if not df_cl.empty and "Nome" in df_cl.columns:
         id_f = e_dt["ID"] if e_dt else get_next_id()
         st.info("📄 Orçamento Nº: " + str(id_f))
         esc = st.selectbox("Cliente", [""] + list(df_cl["Nome"]), index=list(df_cl["Nome"]).index(e_dt['Cliente']) + 1 if e_dt else 0)
@@ -300,7 +316,7 @@ elif aba == "💰 Novo Orçamento":
 elif aba == "📊 Histórico":
     st.title("📊 Gestão de Orçamentos")
     df_h = carregar_aba_sheets("orcamentos", ["ID", "Data", "Cliente", "Total", "Status", "Apresentacao", "Itens_JSON"])
-    if not df_h.empty:
+    if not df_h.empty and "Cliente" in df_h.columns:
         for i, r in df_h.iloc[::-1].iterrows():
             with st.container(border=True):
                 c_d, c_s = st.columns([4, 2])
@@ -325,7 +341,7 @@ elif aba == "👥 Clientes":
             if salvar_no_sheets("clientes", novo_c, ["Nome", "Documento", "WhatsApp", "Endereco", "Data"]):
                 st.success("Cliente salvo!"); st.rerun()
                 
-    if not df_c.empty:
+    if not df_c.empty and "Nome" in df_c.columns:
         for i, r in df_c.iterrows():
             with st.expander("👤 " + str(r['Nome'])):
                 st.write("📍 " + str(r['Endereco']) + " | 📞 " + str(r['WhatsApp']))
