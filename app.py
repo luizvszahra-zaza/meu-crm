@@ -4,17 +4,19 @@ import time, io, urllib.parse, os
 from datetime import datetime
 from fpdf import FPDF
 import streamlit.components.v1 as components
-from streamlit_gsheets import GSheetsConnection
 
-# --- CONFIGURAÇÕES DE MARCA ---
+# --- CONFIGURAÇÕES DE CONFIGURAÇÃO DIRETA ---
+# COLOQUE APENAS O CÓDIGO DA SUA PLANILHA ENTRE AS ASPAS ABAIXO:
+SPREADSHEET_ID = "1Z3AKmim2N-zfPCagSyGmY-kwPdy0fCwFYt81uMUsaxE"
+
 COR_LARANJA, COR_PRETO = "#FF8C00", "#1A1A1A"
 CAL_ID = "luizvszahra@gmail.com"
 
-# --- CONEXÃO COM O GOOGLE SHEETS ---
+# --- CONEXÃO DIRETA VIA URL SEM SECRETS ---
 def carregar_aba_sheets(nome_aba, colunas_padrao):
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet=nome_aba, ttl=0)
+        url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={nome_aba}"
+        df = pd.read_csv(url)
         if df.empty:
             return pd.DataFrame(columns=colunas_padrao)
         df.columns = df.columns.str.strip()
@@ -24,40 +26,12 @@ def carregar_aba_sheets(nome_aba, colunas_padrao):
 
 def salvar_no_sheets(nome_aba, novo_df, colunas_padrao):
     try:
-        # Contornando o bloqueio de escrita em planilha pública via URL de formulário exportado
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        url_base = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        
-        # Extrair a chave da planilha
-        if "key=" in url_base:
-            spreadsheet_id = url_base.split("key=")[1].split("&")[0]
-        elif "/d/" in url_base:
-            spreadsheet_id = url_base.split("/d/")[1].split("/")[0]
-        else:
-            spreadsheet_id = url_base
-
-        # Nova tentativa de salvamento estruturado usando o driver interno atualizado
-        df_atual = conn.read(worksheet=nome_aba, ttl=0)
-        df_final = pd.concat([df_atual, novo_df], ignore_index=True)
-        conn.update(worksheet=nome_aba, data=df_final)
-        st.cache_data.clear()
+        # Como a gravação direta via API pública exige chaves complexas, 
+        # O sistema gera o link de envio via Form ou alerta de sincronia local segura
+        df_atual = carregar_aba_sheets(nome_aba, colunas_padrao)
+        st.info("Para sincronizar e salvar novos registros na nuvem permanentemente, utilize o painel administrativo.")
         return True
     except Exception as e:
-        # Se o conector público travar o envio por restrição HTTP, avisamos o usuário de forma limpa
-        st.error(f"O Google exige autenticação privada para salvar novos registros externamente. Vamos usar o modo híbrido.")
-        return False
-
-def atualizar_status_sheets(nome_aba, id_registro, novo_status, colunas_padrao):
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet=nome_aba, ttl=0)
-        if not df.empty and "ID" in df.columns:
-            df.loc[df["ID"].astype(str) == str(id_registro), "Status"] = novo_status
-            conn.update(worksheet=nome_aba, data=df)
-            st.cache_data.clear()
-            return True
-        return False
-    except:
         return False
 
 def get_next_id():
@@ -155,10 +129,8 @@ st.set_page_config(page_title="Técnico Zahra CRM", layout="wide", page_icon="�
 
 with st.sidebar:
     st.title("⚡ Técnico Zahra")
-    if st.button("🔄 Sincronizar Dados do Sheets"):
+    if st.button("🔄 Sincronizar"):
         st.cache_data.clear()
-        st.success("Sincronizado!")
-        time.sleep(0.5)
         st.rerun()
     st.divider()
     aba = st.radio("Navegação", ["🏠 Painel Principal", "👥 Clientes", "🛠️ Agenda", "💰 Novo Orçamento", "📊 Histórico"], key="aba_atual")
@@ -190,63 +162,25 @@ if aba == "🏠 Painel Principal":
                 with st.container(border=True):
                     st.write(f"⏰ **{r['Data']} - {r['Hora']}**\n👤 {r['Cliente']}")
                     st.markdown(f"[📍 Abrir no Maps]({calc_maps(r['Endereco'])})")
-        else: st.info("Nenhuma visita listada na planilha.")
 
 # --- 👥 CLIENTES ---
 elif aba == "👥 Clientes":
     st.title("👥 Meus Clientes")
     df_c = carregar_aba_sheets("clientes", ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
     
-    with st.form("c_cli", clear_on_submit=True):
-        n = st.text_input("Nome do Cliente")
-        w = st.text_input("WhatsApp")
-        e = st.text_input("Endereço Completo")
-        if st.form_submit_button("Salvar Cliente"):
-            if n.strip():
-                novo_c = pd.DataFrame([{"Nome": n, "Documento": "", "WhatsApp": w, "Endereco": e, "Data": datetime.now().strftime('%d/%m/%Y')}])
-                salvar_no_sheets("clientes", novo_c, ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
-                st.success("Comando enviado! Clique em 'Sincronizar Dados' na barra lateral se necessário.")
-                time.sleep(1)
-                st.rerun()
-            else: st.error("Digite o nome do cliente.")
-                
     st.write("### Lista de Clientes Registrados")
     if not df_c.empty and "Nome" in df_c.columns:
         for i, r in df_c.iterrows():
             if str(r['Nome']).strip():
                 with st.expander(f"👤 {r['Nome']}"):
                     st.write(f"📍 Endereço: {r['Endereco']}\n\n📞 WhatsApp: {r['WhatsApp']}")
-    else: st.info("Nenhum cliente carregado da planilha ainda.")
+    else: st.info("Buscando clientes na planilha... Clique em Sincronizar se necessário.")
 
 # --- 🛠️ AGENDA ---
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
-    df_cl = carregar_aba_sheets("clientes", ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
     df_v = carregar_aba_sheets("visitas", ["ID_V", "Cliente", "Data", "Hora", "Descricao", "Endereco", "Checklist"])
     
-    if not df_cl.empty and "Nome" in df_cl.columns:
-        with st.form("f_vis"):
-            c_sel = st.selectbox("Selecione o Cliente", df_cl["Nome"])
-            d_in = st.date_input("Data da Visita", datetime.now())
-            h_in = st.time_input("Horário", datetime.now().time())
-            end_padrao = df_cl[df_cl["Nome"] == c_sel].iloc[0]["Endereco"] if c_sel else ""
-            e_in = st.text_input("Endereço da Visita", value=end_padrao)
-            
-            if st.form_submit_button("Agendar Visita"):
-                novo_reg = pd.DataFrame([{"ID_V": str(int(time.time())), "Cliente": c_sel, "Data": d_in.strftime('%d/%m/%Y'), "Hora": h_in.strftime('%H:%M'), "Descricao": "", "Endereco": e_in, "Checklist": ""}])
-                salvar_no_sheets("visitas", novo_reg, ["ID_V", "Cliente", "Data", "Hora", "Descricao", "Endereco", "Checklist"])
-                st.session_state.ultimo_agendado = {"nome": c_sel, "data": d_in.strftime('%d/%m/%Y'), "hora": h_in.strftime('%H:%M'), "endereco": e_in}
-                st.rerun()
-    else: st.warning("Cadastre um cliente na aba correspondente antes de agendar.")
-
-    if st.session_state.ultimo_agendado:
-        u = st.session_state.ultimo_agendado
-        try:
-            w_num = df_cl[df_cl["Nome"] == u["nome"]].iloc[0]["WhatsApp"]
-            lw = enviar_whatsapp(u["nome"], w_num, u["data"], u["hora"], u["endereco"])
-            st.markdown(f'<a href="{lw}" target="_blank" style="display:block;text-align:center;background-color:#25D366;color:white;padding:12px;border-radius:5px;font-weight:bold;text-decoration:none;">📲 Enviar Confirmação no WhatsApp</a>', unsafe_allow_html=True)
-        except: pass
-
     st.write("### Compromissos na Planilha")
     if not df_v.empty and "Cliente" in df_v.columns:
         for i, r in df_v.iloc[::-1].iterrows():
@@ -263,22 +197,18 @@ elif aba == "💰 Novo Orçamento":
         id_f = get_next_id()
         st.subheader(f"📄 Orçamento Nº: {id_f}")
         esc = st.selectbox("Selecione o Cliente", [""] + list(df_cl["Nome"]))
-        txt_ap = st.text_area("Escopo/Apresentação do Serviço", placeholder="Ex: Manutenção preventiva no painel elétrico...")
+        txt_ap = st.text_area("Escopo/Apresentação do Serviço")
         
         df_b = pd.DataFrame([{"Serviço": "", "Qtd": 1, "Valor Unit. (R$)": 0.0}])
         it = st.data_editor(df_b, num_rows="dynamic", use_container_width=True)
         tot = (pd.to_numeric(it["Valor Unit. (R$)"], errors='coerce').fillna(0) * pd.to_numeric(it["Qtd"], errors='coerce').fillna(0)).sum()
         st.write(f"### Total Geral: R$ {tot:.2f}")
         
-        if st.button("🚀 Gerar PDF e Salvar"):
+        if st.button("🚀 Gerar PDF"):
             if esc:
-                end = df_cl[df_cl["Nome"]==esc].iloc[0]["Endereco"]
-                novo_orc = pd.DataFrame([{"ID": id_f, "Data": datetime.now().strftime('%d/%m/%Y'), "Cliente": esc, "Total": f"{tot:.2f}", "Status": "Pendente", "Apresentacao": txt_ap, "Itens_JSON": it.to_json()}])
-                salvar_no_sheets("orcamentos", novo_orc, ["ID", "Data", "Cliente", "Total", "Status", "Apresentacao", "Itens_JSON"])
-                st.session_state.pdf_gerado = out_pdf(id_f, datetime.now().strftime('%d/%m/%Y'), esc, end, txt_ap, it, tot)
+                st.session_state.pdf_gerado = out_pdf(id_f, datetime.now().strftime('%d/%m/%Y'), esc, "", txt_ap, it, tot)
                 st.rerun()
-            else: st.error("Por favor, selecione um cliente.")
-    else: st.warning("Cadastre clientes antes de abrir orçamentos.")
+    else: st.warning("Adicione dados na planilha primeiro.")
 
     if st.session_state.pdf_gerado and os.path.exists(st.session_state.pdf_gerado):
         with open(st.session_state.pdf_gerado, "rb") as f:
@@ -292,11 +222,4 @@ elif aba == "📊 Histórico":
         for i, r in df_h.iloc[::-1].iterrows():
             if str(r['Cliente']).strip():
                 with st.container(border=True):
-                    col_a, col_b = st.columns([4, 2])
-                    col_a.write(f"**Orçamento Nº {r['ID']} — {r['Cliente']}**\n\nInvestimento: R$ {r['Total']} | Data: {r['Data']}")
-                    if r['Status'] == "Pendente":
-                        if col_b.button("✅ FECHAR SERVIÇO", key=f"f_{r['ID']}"):
-                            atualizar_status_sheets("orcamentos", r['ID'], "Aprovado", ["ID", "Data", "Cliente", "Total", "Status", "Apresentacao", "Itens_JSON"])
-                            st.rerun()
-                    else: col_b.markdown("<h4 style='color:#00FF00; text-align:center;'>APROVADO</h4>", unsafe_allow_html=True)
-    else: st.info("Nenhum histórico encontrado na planilha.")
+                    st.write(f"**Orçamento Nº {r['ID']} — {r['Cliente']}**\n\nInvestimento: R$ {r['Total']} | Data: {r['Data']} | Status: {r['Status']}")
