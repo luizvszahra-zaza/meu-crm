@@ -28,4 +28,14 @@ def carregar_aba_sheets(nome_aba, colunas_padrao):
         return df.fillna("").astype(str)
     except Exception as e:
         st.sidebar.error(f"Erro ao conectar na aba '{nome_aba}': {str(e)}")
-        print(f"Erro ao conectar na aba '{nome_
+        print(f"Erro ao conectar na aba '{nome_aba}': {e}")  # Log de erro
+        return pd.DataFrame(columns=colunas_padrao)
+
+def salvar_no_sheets(nome_aba, novo_df, colunas_padrao):
+    st.info("Use o painel para salvar permanentemente.")
+    return True
+
+def get_next_id():
+    cols = ["ID", "Data", "Cliente", "Total", "Status"]
+    df = carregar_aba_sheets("orcamentos", cols)
+    if df.empty or not df.columns
