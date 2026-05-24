@@ -9,11 +9,8 @@ from fpdf import FPDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DO SISTEMA ---
-# 1. Coloque o ID da sua planilha aqui
-SPREADSHEET_ID = "1A2B3C4D_SUA_ID_REAL_JA_ESTA_SALVA_AQUI"
-
-# 2. Insira a URL do seu Apps Script aqui
-WEBAPP_URL = "COLE_AQUI_A_URL_DO_APPS_SCRIPT"
+SPREADSHEET_ID = "1Z3AKmim2N-zfPCagSyGmY-kwPdy0fCwFYt81uMUsaxE"
+WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzcfdzRLU4ba6GxeY_MS2Fq6Hl1NAzUALdzq-WQ-eqCLBL57ue62c0hTE4_8D3t7YGREQ/exec"
 
 COR_LARANJA = "#FF8C00"
 COR_PRETO = "#1A1A1A"
@@ -31,15 +28,22 @@ def carregar_aba_sheets(nome_aba):
         df = pd.read_csv(url)
         if df.empty:
             return pd.DataFrame()
+        
         df.columns = df.columns.str.strip()
-        return df.fillna("").astype(str)
+        df = df.fillna("").astype(str)
+        
+        # LIMPEZA AUTOMÁTICA DE .0: Remove de qualquer coluna (WhatsApp, ID, etc.)
+        for col in df.columns:
+            df[col] = df[col].apply(lambda x: x[:-2] if x.endswith(".0") else x)
+            
+        return df
     except Exception as e:
         st.sidebar.error(f"Erro na aba '{nome_aba}'")
         return pd.DataFrame()
 
 def salvar_no_sheets(nome_original, novo_nome, novo_whats, novo_end):
     if not WEBAPP_URL or "COLE_AQUI" in WEBAPP_URL:
-        st.error("Configure a URL do Apps Script na linha 15.")
+        st.error("Configure a URL do Apps Script na linha 11.")
         return False
     try:
         dados = {
@@ -50,7 +54,7 @@ def salvar_no_sheets(nome_original, novo_nome, novo_whats, novo_end):
             "novo_whats": novo_whats,
             "novo_end": novo_end
         }
-        resposta = requests.post(WEBAPP_URL, json=dados)
+        resposta = requests.post(WEBAPP_URL, json=dados, timeout=10)
         if resposta.status_code == 200:
             return True
         return False
@@ -65,8 +69,6 @@ def get_next_id():
     if not id_col:
         return "1000"
     try:
-        # Remove o .0 caso o ID também venha formatado como float
-        df[id_col] = df[id_col].astype(str).str.replace(".0", "", regex=False)
         ids = pd.to_numeric(df[id_col], errors='coerce').dropna()
         return "1000" if ids.empty else str(int(ids.max() + 1))
     except: 
@@ -241,10 +243,7 @@ elif aba == "👥 Clientes":
         for i, r in df_c.iterrows():
             nome_orig = str(r[c_nome]).strip()
             if nome_orig:
-                # TRATAMENTO DO TELEFONE: Limpa o descritivo decimal .0 da string
                 whats_limpo = str(r.get(c_whats, 'Não informado')).strip()
-                if whats_limpo.endswith(".0"):
-                    whats_limpo = whats_limpo[:-2]
                 
                 with st.expander(f"👤 {nome_orig}"):
                     st.write(f"📍 Endereço: {r.get(c_end, 'Não informado')}")
@@ -337,7 +336,6 @@ elif aba == "📊 Histórico":
                 if str(r[cli_col]).strip():
                     with st.container(border=True):
                         i_txt = r.get(id_col, '') if id_col else ''
-                        if i_txt.endswith(".0"): i_txt = i_txt[:-2]
                         t_txt = r.get(tot_col, '0.00') if tot_col else '0.00'
                         s_txt = r.get(st_col, 'Pendente') if st_col else 'Pendente'
                         st.write(f"**Nº {i_txt} — {r[cli_col]}**\n\nInvestimento: R$ {t_txt} | Status: {s_txt}")
