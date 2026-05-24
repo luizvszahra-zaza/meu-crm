@@ -8,7 +8,7 @@ from fpdf import FPDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DO SISTEMA ---
-# IMPORTANTE: Substitua pelas letras e números da sua planilha real
+# IMPORTANTE: Coloque o ID de letras e números da sua planilha real aqui
 SPREADSHEET_ID = "1A2B3C4D_SUA_ID_REAL_JA_ESTA_SALVA_AQUI"
 
 COR_LARANJA = "#FF8C00"
@@ -16,7 +16,7 @@ COR_PRETO = "#1A1A1A"
 CAL_ID = "luizvszahra@gmail.com"
 
 # --- ENGINE DE CONEXÃO COM O GOOGLE SHEETS ---
-def carregar_aba_sheets(nome_aba, colunas_padrao):
+def carregar_aba_sheets(nome_aba):
     try:
         aba_cod = urllib.parse.quote(nome_aba.strip())
         url = (
@@ -26,31 +26,22 @@ def carregar_aba_sheets(nome_aba, colunas_padrao):
         )
         df = pd.read_csv(url)
         if df.empty:
-            return pd.DataFrame(columns=colunas_padrao)
-        
-        # Limpa espaços em branco antes e depois do nome de cada coluna
+            return pd.DataFrame()
         df.columns = df.columns.str.strip()
         return df.fillna("").astype(str)
     except Exception as e:
         st.sidebar.error(f"Erro na aba '{nome_aba}'")
-        return pd.DataFrame(columns=colunas_padrao)
-
-def salvar_no_sheets(nome_aba, novo_df, colunas_padrao):
-    st.info("Use o painel para salvar permanentemente.")
-    return True
+        return pd.DataFrame()
 
 def get_next_id():
-    cols = ["ID", "Data", "Cliente", "Total", "Status"]
-    df = carregar_aba_sheets("orcamentos", cols)
+    df = carregar_aba_sheets("orcamentos")
     if df.empty:
         return "1000"
-    
     id_col = next((c for c in df.columns if c.lower() == 'id'), None)
     if not id_col:
         return "1000"
     try:
-        ids = pd.to_numeric(df[id_col], errors='coerce')
-        ids = ids.dropna()
+        ids = pd.to_numeric(df[id_col], errors='coerce').dropna()
         return "1000" if ids.empty else str(int(ids.max() + 1))
     except: 
         return "1000"
@@ -64,10 +55,7 @@ def enviar_whatsapp(nome, tel, dt, hr, ender):
     num = "".join(c for c in str(tel) if c.isdigit())
     if not num.startswith("55"): 
         num = "55" + num
-    return (
-        f"https://api.whatsapp.com/send?phone={num}"
-        f"&text={urllib.parse.quote(m)}"
-    )
+    return f"https://api.whatsapp.com/send?phone={num}&text={urllib.parse.quote(m)}"
 
 def calc_maps(ender):
     if not ender: 
@@ -76,10 +64,6 @@ def calc_maps(ender):
     return base + urllib.parse.quote(str(ender))
 
 # --- CONFIGURAÇÃO DE ESTADOS ---
-if 'orc_edit' not in st.session_state:
-    st.session_state.orc_edit = None
-if 'vis_edit' not in st.session_state:
-    st.session_state.vis_edit = None
 if 'pdf_gerado' not in st.session_state:
     st.session_state.pdf_gerado = None
 if 'aba_atual' not in st.session_state:
@@ -98,15 +82,7 @@ class PDF_Zahra(FPDF):
         self.cell(0, 5, msg, ln=True)
         self.ln(15)
 
-def out_pdf(
-    idx,
-    dt,
-    cli,
-    ender,
-    apr,
-    items,
-    tot
-):
+def out_pdf(idx, dt, cli, ender, apr, items, tot):
     try:
         pdf = PDF_Zahra()
         pdf.add_page()
@@ -182,17 +158,17 @@ with st.sidebar:
 
 if aba == "🏠 Painel Principal":
     st.title("🚀 Dashboard Técnico Zahra")
-    cols = ["ID", "Data", "Cliente", "Total", "Status"]
-    df_o = carregar_aba_sheets("orcamentos", cols)
+    df_o = carregar_aba_sheets("orcamentos")
     fat = pend = 0
     
-    status_col = next((c for c in df_o.columns if c.lower() == 'status'), None)
-    total_col = next((c for c in df_o.columns if c.lower() == 'total'), None)
-    
-    if not df_o.empty and total_col and status_col:
-        df_o[total_col] = pd.to_numeric(df_o[total_col], errors='coerce').fillna(0)
-        fat = df_o[df_o[status_col].str.lower() == "aprovado"][total_col].sum()
-        pend = df_o[df_o[status_col].str.lower() == "pendente"][total_col].sum()
+    if not df_o.empty:
+        status_col = next((c for c in df_o.columns if c.lower() == 'status'), None)
+        total_col = next((c for c in df_o.columns if c.lower() == 'total'), None)
+        
+        if total_col and status_col:
+            df_o[total_col] = pd.to_numeric(df_o[total_col], errors='coerce').fillna(0)
+            fat = df_o[df_o[status_col].str.lower() == "aprovado"][total_col].sum()
+            pend = df_o[df_o[status_col].str.lower() == "pendente"][total_col].sum()
     
     col1, col2 = st.columns(2)
     col1.metric("FATURADO (APROVADO)", f"R$ {fat:.2f}")
@@ -206,33 +182,33 @@ if aba == "🏠 Painel Principal":
         components.iframe(url_cal, height=500)
     with c_age:
         st.subheader("📌 Próximas Visitas")
-        cols_v = ["ID_V", "Cliente", "Data", "Hora", "Endereco"]
-        df_v = carregar_aba_sheets("visitas", cols_v)
+        df_v = carregar_aba_sheets("visitas")
         
-        cli_col = next((c for c in df_v.columns if c.lower() == 'cliente'), None)
-        end_col = next((c for c in df_v.columns if c.lower() in ['endereco', 'endereço']), None)
-        
-        if not df_v.empty and cli_col:
-            for _, r in df_v.tail(5).iloc[::-1].iterrows():
-                with st.container():
-                    st.write(f"⏰ **{r.get('Data', '')} - {r.get('Hora', '')}**\n👤 {r[cli_col]}")
-                    if end_col:
-                        st.markdown(f"[📍 Abrir no Maps]({calc_maps(r[end_col])})")
+        if not df_v.empty:
+            cli_col = next((c for c in df_v.columns if c.lower() == 'cliente'), None)
+            end_col = next((c for c in df_v.columns if c.lower() in ['endereco', 'endereço']), None)
+            data_col = next((c for c in df_v.columns if c.lower() == 'data'), None)
+            hora_col = next((c for c in df_v.columns if c.lower() == 'hora'), None)
+            
+            if cli_col:
+                for _, r in df_v.tail(5).iloc[::-1].iterrows():
+                    with st.container(border=True):
+                        d_txt = r.get(data_col, '') if data_col else ''
+                        h_txt = r.get(hora_col, '') if hora_col else ''
+                        st.write(f"⏰ **{d_txt} - {h_txt}**\n👤 {r[cli_col]}")
+                        if end_col:
+                            st.markdown(f"[📍 Abrir no Maps]({calc_maps(r[end_col])})")
 
 elif aba == "👥 Clientes":
     st.title("👥 Meus Clientes")
-    cols_c = ["Nome", "Documento", "WhatsApp", "Endereco", "Data"]
-    df_c = carregar_aba_sheets("clientes", cols_c)
+    df_c = carregar_aba_sheets("clientes")
     
     st.write("### Lista de Clientes Registrados")
     if not df_c.empty:
-        # Encontra colunas de forma inteligente sem importar maiúsculas/minúsculas
-        c_nome = next((c for c in df_c.columns if c.lower() == 'nome'), None)
+        c_nome = next((c for c in df_c.columns if c.lower() == 'nome'), df_c.columns[0])
         c_end = next((c for c in df_c.columns if c.lower() in ['endereco', 'endereço']), None)
         c_whats = next((c for c in df_c.columns if c.lower() in ['whatsapp', 'whats']), None)
         
-        # Fallback caso não encontre pelo nome inteligente
-        c_nome = c_nome if c_nome else df_c.columns[0]
         c_end = c_end if c_end else (df_c.columns[3] if len(df_c.columns) > 3 else df_c.columns[0])
         c_whats = c_whats if c_whats else (df_c.columns[2] if len(df_c.columns) > 2 else df_c.columns[0])
         
@@ -257,32 +233,36 @@ elif aba == "👥 Clientes":
                                 time.sleep(0.5)
                                 st.rerun()
     else:
-        st.info("Nenhum cliente listado. Clique em 'Sincronizar' ou verifique as colunas da planilha.")
+        st.info("Nenhum cliente listado. Verifique os dados ou clique em 'Sincronizar'.")
 
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
-    cols_v = ["ID_V", "Cliente", "Data", "Hora", "Endereco"]
-    df_v = carregar_aba_sheets("visitas", cols_v)
+    df_v = carregar_aba_sheets("visitas")
     
-    cli_col = next((c for c in df_v.columns if c.lower() == 'cliente'), None)
-    end_col = next((c for c in df_v.columns if c.lower() in ['endereco', 'endereço']), None)
-    
-    if not df_v.empty and cli_col:
-        for i, r in df_v.iloc[::-1].iterrows():
-            if str(r[cli_col]).strip():
-                with st.container():
-                    st.write(f"📅 **{r.get('Data', '')} às {r.get('Hora', '')}** — {r[cli_col]}")
-                    if end_col:
-                        st.markdown(f"[📍 Maps]({calc_maps(r[end_col])})")
+    if not df_v.empty:
+        cli_col = next((c for c in df_v.columns if c.lower() == 'cliente'), None)
+        end_col = next((c for c in df_v.columns if c.lower() in ['endereco', 'endereço']), None)
+        data_col = next((c for c in df_v.columns if c.lower() == 'data'), None)
+        hora_col = next((c for c in df_v.columns if c.lower() == 'hora'), None)
+        
+        if cli_col:
+            for i, r in df_v.iloc[::-1].iterrows():
+                if str(r[cli_col]).strip():
+                    with st.container(border=True):
+                        d_txt = r.get(data_col, '') if data_col else ''
+                        h_txt = r.get(hora_col, '') if hora_col else ''
+                        st.write(f"📅 **{d_txt} às {h_txt}** — {r[cli_col]}")
+                        if end_col:
+                            st.markdown(f"[📍 Maps]({calc_maps(r[end_col])})")
+    else:
+        st.info("Nenhum compromisso agendado na planilha.")
 
 elif aba == "💰 Novo Orçamento":
     st.title("💰 Criar Orçamento")
-    df_cl = carregar_aba_sheets("clientes", ["Nome"])
+    df_cl = carregar_aba_sheets("clientes")
     
-    nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), None)
-    nome_col = nome_col if nome_col else (df_cl.columns[0] if not df_cl.empty else None)
-    
-    if not df_cl.empty and nome_col:
+    if not df_cl.empty:
+        nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
         id_f = get_next_id()
         st.subheader(f"📄 Orçamento Nº: {id_f}")
         lista_clientes = [n for n in df_cl[nome_col].unique() if str(n).strip()]
@@ -310,13 +290,21 @@ elif aba == "💰 Novo Orçamento":
 
 elif aba == "📊 Histórico":
     st.title("📊 Histórico")
-    cols_h = ["ID", "Data", "Cliente", "Total", "Status"]
-    df_h = carregar_aba_sheets("orcamentos", cols_h)
+    df_h = carregar_aba_sheets("orcamentos")
     
-    cli_col = next((c for c in df_h.columns if c.lower() == 'cliente'), None)
-    
-    if not df_h.empty and cli_col:
-        for i, r in df_h.iloc[::-1].iterrows():
-            if str(r[cli_col]).strip():
-                with st.container():
-                    st.write(f"**Nº {r.get('ID', '')} — {r[cli_col]}**\n\nInvestimento: R$ {r.get('Total', '0.00')} | Status: {r.get('Status', 'Pendente')}")
+    if not df_h.empty:
+        cli_col = next((c for c in df_h.columns if c.lower() == 'cliente'), None)
+        id_col = next((c for c in df_h.columns if c.lower() == 'id'), None)
+        tot_col = next((c for c in df_h.columns if c.lower() == 'total'), None)
+        st_col = next((c for c in df_h.columns if c.lower() == 'status'), None)
+        
+        if cli_col:
+            for i, r in df_h.iloc[::-1].iterrows():
+                if str(r[cli_col]).strip():
+                    with st.container(border=True):
+                        i_txt = r.get(id_col, '') if id_col else ''
+                        t_txt = r.get(tot_col, '0.00') if tot_col else '0.00'
+                        s_txt = r.get(st_col, 'Pendente') if st_col else 'Pendente'
+                        st.write(f"**Nº {i_txt} — {r[cli_col]}**\n\nInvestimento: R$ {t_txt} | Status: {s_txt}")
+    else:
+        st.info("Nenhum histórico encontrado.")
