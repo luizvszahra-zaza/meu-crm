@@ -43,4 +43,22 @@ def enviar_whatsapp(nome, tel, dt, hr, ender):
     m = f"Olá {nome}, aqui é o Luiz da Técnico Zahra! ⚡\n\nEstou passando para confirmar nossa visita técnica:\nData: {dt}\nHorário: {hr}\nEndereço: {ender}"
     num = "".join(c for c in str(tel) if c.isdigit())
     if not num.startswith("55"): num = "55" + num
-    return "
+    return "https://api.whatsapp.com/send?phone=" + num + "&text=" + urllib.parse.quote(m)
+
+def calc_maps(ender):
+    if not ender: 
+        return "#"
+    return "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote(str(ender))
+
+# --- ESTADOS INTERNOS ---
+if 'orc_edit' not in st.session_state: st.session_state.orc_edit = None
+if 'vis_edit' not in st.session_state: st.session_state.vis_edit = None
+if 'ultimo_agendado' not in st.session_state: st.session_state.ultimo_agendado = None
+if 'pdf_gerado' not in st.session_state: st.session_state.pdf_gerado = None
+if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🏠 Painel Principal"
+
+# --- MOTOR DE PDF ---
+class PDF_Zahra(FPDF):
+    def header(self):
+        self.set_fill_color(255, 140, 0)
+        self.rect(0,
