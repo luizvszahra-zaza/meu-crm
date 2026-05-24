@@ -106,6 +106,12 @@ def gerar_link_google_agenda(cliente, data_str, hora_str, endereco):
     except:
         return "https://calendar.google.com"
 
+def calc_maps(ender):
+    if not ender: 
+        return "#"
+    base = "https://www.google.com/maps/search/?api=1&query="
+    return base + urllib.parse.quote(str(ender))
+
 # --- CONFIGURAÇÃO DE ESTADOS ---
 if 'pdf_gerado' not in st.session_state:
     st.session_state.pdf_gerado = None
@@ -251,7 +257,8 @@ if aba == "🏠 Painel Principal":
                         with st.container(border=True):
                             h_txt = r.get(hora_col, '') if hora_col else ''
                             st.write(f"⏰ **{v_data} - {h_txt}**\n👤 {r[cli_col]}")
-                            if end_col:
+                            # VALIDAÇÃO SEGURA CONTRA NAMEERROR/COLUNA AUSENTE
+                            if end_col and r.get(end_col, ''):
                                 st.markdown(f"[📍 Abrir no Maps]({calc_maps(r[end_col])})")
                 if visitas_futuras == 0:
                     st.info("Nenhuma visita agendada para os próximos dias.")
@@ -328,7 +335,7 @@ elif aba == "👥 Clientes":
     else:
         st.info("Nenhum cliente listado.")
 
-# --- 🛠️ MODULO 3: AGENDA (AÇÕES RÁPIDAS APÓS SALVAR) ---
+# --- 🛠️ MODULO 3: AGENDA ---
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
     
@@ -368,7 +375,6 @@ elif aba == "🛠️ Agenda":
                         if enviar_dados_sheets(p):
                             st.success("⚡ Agendamento salvo com sucesso!")
                             
-                            # GERA AS DUAS AÇÕES RÁPIDAS DIRETAS NA TELA
                             link_wpp_msg = mensagem_confirmacao_visita(v_cli, whats_sugerido, dt_formatada, v_hora, v_end)
                             link_agenda = gerar_link_google_agenda(v_cli, dt_formatada, v_hora, v_end)
                             
@@ -395,7 +401,7 @@ elif aba == "🛠️ Agenda":
                 id_v_atual = r.get(id_v_col, str(i))
                 with st.container(border=True):
                     st.write(f"📅 **{r.get(data_col, '')} às {r.get(hora_col, '')}** — {r[cli_col]}")
-                    if end_col:
+                    if end_col and r.get(end_col, ''):
                         st.markdown(f"[📍 Maps]({calc_maps(r[end_col])})")
                     
                     c1, c2 = st.columns(2)
@@ -407,7 +413,7 @@ elif aba == "🛠️ Agenda":
                                 ed_hr = st.text_input("Hora", value=r.get(hora_col, ''))
                                 ed_end = st.text_input("Endereço", value=r.get(end_col, '') if end_col else '')
                                 
-                                if st.form_submit_button("💾 Atualizar"):
+                                if st.form_submit_button("💾 Atuallzar"):
                                     p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "editar", "id_v": id_v_atual, "cliente": ed_cli, "data": ed_dt, "hora": ed_hr, "endereco": ed_end}
                                     if enviar_dados_sheets(p):
                                         st.success("Visita Atualizada!")
