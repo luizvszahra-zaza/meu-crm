@@ -4,7 +4,7 @@ import time
 import urllib.parse
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from fpdf import FPDF
 import streamlit.components.v1 as components
 
@@ -72,6 +72,33 @@ def calc_maps(ender):
         return "#"
     base = "https://www.google.com/maps/search/?api=1&query="
     return base + urllib.parse.quote(str(ender))
+
+def gerar_link_google_agenda(cliente, data_str, hora_str, endereco):
+    try:
+        # Formato esperado da data: DD/MM/YYYY
+        dt_v = datetime.strptime(data_str, "%d/%m/%Y")
+        hr_parts = hora_str.split(":")
+        hr = int(hr_parts[0])
+        mn = int(hr_parts[1]) if len(hr_parts) > 1 else 0
+        
+        dt_inicio = dt_v.replace(hour=hr, minute=mn)
+        dt_fim = dt_inicio + timedelta(hours=1)
+        
+        fmt = "%Y%m%dT%H%M%S"
+        dates = f"{dt_inicio.strftime(fmt)}/{dt_fim.strftime(fmt)}"
+        
+        titulo = f"Visita Técnica: {cliente} ⚡"
+        detalhes = f"Visita agendada via Técnico Zahra CRM.\nLocal: {endereco}"
+        
+        base_url = "https://calendar.google.com/calendar/render?action=TEMPLATE"
+        link = (
+            f"{base_url}&text={urllib.parse.quote(titulo)}"
+            f"&dates={dates}&details={urllib.parse.quote(detalhes)}"
+            f"&location={urllib.parse.quote(endereco)}&sf=true&output=xml"
+        )
+        return link
+    except:
+        return "https://calendar.google.com"
 
 # --- CONFIGURAÇÃO DE ESTADOS ---
 if 'pdf_gerado' not in st.session_state:
@@ -295,14 +322,13 @@ elif aba == "👥 Clientes":
     else:
         st.info("Nenhum cliente listado.")
 
-# --- 🛠️ MODULO 3: AGENDA (BUSCA AUTOMÁTICA DE ENDEREÇO) ---
+# --- 🛠️ MODULO 3: AGENDA (DELETAR E INTEGRAÇÃO GOOGLE CALENDAR) ---
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
     
     df_cl = carregar_aba_sheets("clientes")
     df_v = carregar_aba_sheets("visitas")
     
-    # Lógica de preenchimento automático fora do formulário para evitar travas
     st.subheader("📅 Novo Agendamento Técnico")
     if not df_cl.empty:
         c_nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
@@ -311,14 +337,12 @@ elif aba == "🛠️ Agenda":
         lista_cli = [""] + list(df_cl[c_nome_col].unique())
         v_cli = st.selectbox("Selecione o Cliente", lista_cli, key="sel_cli_agenda")
         
-        # Procura o endereço do cliente selecionado para sugerir no campo
         end_sugerido = ""
         if v_cli and c_end_col:
             dados_cliente = df_cl[df_cl[c_nome_col] == v_cli]
             if not dados_cliente.empty:
                 end_sugerido = dados_cliente.iloc[0].get(c_end_col, "")
         
-        # Formulário com o endereço já injetado dinamicamente
         with st.form("novo_agendamento", clear_on_submit=True):
             v_data = st.date_input("Data da Visita", datetime.now())
             v_hora = st.text_input("Horário (Ex: 14:00)")
@@ -328,10 +352,14 @@ elif aba == "🛠️ Agenda":
                 if v_cli and v_hora:
                     dt_formatada = v_data.strftime('%d/%m/%Y')
                     p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "criar", "cliente": v_cli, "data": dt_formatada, "hora": v_hora, "endereco": v_end}
+                    
                     if enviar_dados_sheets(p):
-                        st.success("Agendado com sucesso!")
+                        st.success("Agendado na planilha!")
+                        # GERA O LINK DO GOOGLE AGENDA PARA SALVAR COM 1 CLIQUE
+                        g_link = gerar_link_google_agenda(v_cli, dt_formatada, v_hora, v_end)
+                        st.markdown(f"[📅 CLIQUE AQUI PARA SALVAR NO SEU GOOGLE AGENDA]({g_link})")
                         st.cache_data.clear()
-                        time.sleep(0.5)
+                        time.sleep(2.0)
                         st.rerun()
                 else:
                     st.warning("Selecione um cliente e defina o horário.")
@@ -354,22 +382,32 @@ elif aba == "🛠️ Agenda":
                     if end_col:
                         st.markdown(f"[📍 Maps]({calc_maps(r[end_col])})")
                     
-                    if st.checkbox("✏️ Editar Visita", key=f"edit_vis_{id_v_atual}"):
-                        with st.form(f"form_v_{id_v_atual}"):
-                            ed_cli = st.text_input("Cliente", value=r[cli_col])
-                            ed_dt = st.text_input("Data", value=r.get(data_col, ''))
-                            ed_hr = st.text_input("Hora", value=r.get(hora_col, ''))
-                            ed_end = st.text_input("Endereço", value=r.get(end_col, '') if end_col else '')
-                            
-                            if st.form_submit_button("💾 Atualizar Agendamento"):
-                                p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "editar", "id_v": id_v_atual, "cliente": ed_cli, "data": ed_dt, "hora": ed_hr, "endereco": ed_end}
-                                if enviar_dados_sheets(p):
-                                    st.success("Visita Atualizada!")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.checkbox("✏️ Editar", key=f"edit_vis_{id_v_atual}"):
+                            with st.form(f"form_v_{id_v_atual}"):
+                                ed_cli = st.text_input("Cliente", value=r[cli_col])
+                                ed_dt = st.text_input("Data", value=r.get(data_col, ''))
+                                ed_hr = st.text_input("Hora", value=r.get(hora_col, ''))
+                                ed_end = st.text_input("Endereço", value=r.get(end_col, '') if end_col else '')
+                                
+                                if st.form_submit_button("💾 Atualizar"):
+                                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "editar", "id_v": id_v_atual, "cliente": ed_cli, "data": ed_dt, "hora": ed_hr, "endereco": ed_end}
+                                    if enviar_dados_sheets(p):
+                                        st.success("Visita Atualizada!")
+                                        st.cache_data.clear()
+                                        time.sleep(0.5)
+                                        st.rerun()
+                    with c2:
+                        # BOTÃO DE APAGAR VISITA PROFISSIONAL
+                        if st.button("🗑️ Apagar Visita", key=f"del_vis_{id_v_atual}", use_container_width=True):
+                            with st.spinner("Removendo..."):
+                                p_del = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "deletar", "id_v": id_v_atual}
+                                if enviar_dados_sheets(p_del):
+                                    st.success("Visita excluída!")
                                     st.cache_data.clear()
                                     time.sleep(0.5)
                                     st.rerun()
-    else:
-        st.info("Nenhum compromisso agendado.")
 
 # --- 💰 MODULO 4: CRIAR ORÇAMENTO ---
 elif aba == "💰 Novo Orçamento":
