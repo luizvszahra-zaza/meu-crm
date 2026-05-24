@@ -74,12 +74,8 @@ def get_next_id():
     except: 
         return "1000"
 
-def enviar_whatsapp(nome, tel, dt, hr, ender):
-    m = (
-        f"Olá {nome}, aqui é o Luiz da Técnico Zahra! ⚡\n\n"
-        f"Confirmando visita:\nData: {dt}\nHorário: {hr}\n"
-        f"Endereço: {ender}"
-    )
+def enviar_whatsapp(nome, tel):
+    m = f"Olá {nome}, aqui é o Luiz da Técnico Zahra! ⚡"
     num = "".join(c for c in str(tel) if c.isdigit())
     if not num.startswith("55"): 
         num = "55" + num
@@ -249,6 +245,12 @@ elif aba == "👥 Clientes":
                     st.write(f"📍 Endereço: {r.get(c_end, 'Não informado')}")
                     st.write(f"📞 WhatsApp: {whats_limpo}")
                     
+                    # LINK DIRETO PARA O WHATSAPP DO CLIENTE
+                    if whats_limpo and whats_limpo != 'Não informado':
+                        link_wpp = enviar_whatsapp(nome_orig, whats_limpo)
+                        st.markdown(f"[💬 Abrir Conversa no WhatsApp]({link_wpp})")
+                    
+                    st.write("---")
                     if st.checkbox("✏️ Editar", key=f"edit_{i}"):
                         with st.form(f"f_{i}", clear_on_submit=False):
                             n_n = st.text_input("Nome", value=r[c_nome])
