@@ -4,7 +4,7 @@ import time
 import urllib.parse
 import os
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from fpdf import FPDF
 import streamlit.components.v1 as components
 
@@ -72,33 +72,6 @@ def calc_maps(ender):
         return "#"
     base = "https://www.google.com/maps/search/?api=1&query="
     return base + urllib.parse.quote(str(ender))
-
-def gerar_link_google_agenda(cliente, data_str, hora_str, endereco):
-    try:
-        # Formato esperado da data: DD/MM/YYYY
-        dt_v = datetime.strptime(data_str, "%d/%m/%Y")
-        hr_parts = hora_str.split(":")
-        hr = int(hr_parts[0])
-        mn = int(hr_parts[1]) if len(hr_parts) > 1 else 0
-        
-        dt_inicio = dt_v.replace(hour=hr, minute=mn)
-        dt_fim = dt_inicio + timedelta(hours=1)
-        
-        fmt = "%Y%m%dT%H%M%S"
-        dates = f"{dt_inicio.strftime(fmt)}/{dt_fim.strftime(fmt)}"
-        
-        titulo = f"Visita Técnica: {cliente} ⚡"
-        detalhes = f"Visita agendada via Técnico Zahra CRM.\nLocal: {endereco}"
-        
-        base_url = "https://calendar.google.com/calendar/render?action=TEMPLATE"
-        link = (
-            f"{base_url}&text={urllib.parse.quote(titulo)}"
-            f"&dates={dates}&details={urllib.parse.quote(detalhes)}"
-            f"&location={urllib.parse.quote(endereco)}&sf=true&output=xml"
-        )
-        return link
-    except:
-        return "https://calendar.google.com"
 
 # --- CONFIGURAÇÃO DE ESTADOS ---
 if 'pdf_gerado' not in st.session_state:
@@ -322,7 +295,7 @@ elif aba == "👥 Clientes":
     else:
         st.info("Nenhum cliente listado.")
 
-# --- 🛠️ MODULO 3: AGENDA (DELETAR E INTEGRAÇÃO GOOGLE CALENDAR) ---
+# --- 🛠️ MODULO 3: AGENDA (100% AUTOMÁTICO SEM BOTÃO DE REDIRECIONAR) ---
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
     
@@ -353,14 +326,14 @@ elif aba == "🛠️ Agenda":
                     dt_formatada = v_data.strftime('%d/%m/%Y')
                     p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "criar", "cliente": v_cli, "data": dt_formatada, "hora": v_hora, "endereco": v_end}
                     
-                    if enviar_dados_sheets(p):
-                        st.success("Agendado na planilha!")
-                        # GERA O LINK DO GOOGLE AGENDA PARA SALVAR COM 1 CLIQUE
-                        g_link = gerar_link_google_agenda(v_cli, dt_formatada, v_hora, v_end)
-                        st.markdown(f"[📅 CLIQUE AQUI PARA SALVAR NO SEU GOOGLE AGENDA]({g_link})")
-                        st.cache_data.clear()
-                        time.sleep(2.0)
-                        st.rerun()
+                    with st.spinner("Agendando no sistema e no seu Google Agenda..."):
+                        if enviar_dados_sheets(p):
+                            st.success("⚡ Agendamento realizado com sucesso na Planilha e no seu Google Agenda!")
+                            st.cache_data.clear()
+                            time.sleep(1.5)
+                            st.rerun()
+                        else:
+                            st.error("Erro na comunicação com o servidor.")
                 else:
                     st.warning("Selecione um cliente e defina o horário.")
     else:
@@ -399,7 +372,6 @@ elif aba == "🛠️ Agenda":
                                         time.sleep(0.5)
                                         st.rerun()
                     with c2:
-                        # BOTÃO DE APAGAR VISITA PROFISSIONAL
                         if st.button("🗑️ Apagar Visita", key=f"del_vis_{id_v_atual}", use_container_width=True):
                             with st.spinner("Removendo..."):
                                 p_del = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "deletar", "id_v": id_v_atual}
@@ -474,7 +446,7 @@ elif aba == "📊 Histórico":
                             if st.button("💾 Confirmar Mudança", key=f"btn_{id_orc_atual}"):
                                 p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "orcamentos", "id": id_orc_atual, "novo_status": novo_status}
                                 if enviar_dados_sheets(p):
-                                    st.success("Status atualizado!")
+                                    st.success("Status updated!")
                                     st.cache_data.clear()
                                     time.sleep(0.5)
                                     st.rerun()
