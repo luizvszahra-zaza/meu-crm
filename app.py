@@ -333,6 +333,7 @@ elif aba == "📊 Histórico":
 # --- 👥 CLIENTES ---
 elif aba == "👥 Clientes":
     st.title("👥 Meus Clientes")
+    st.write("DEBUG CLIENTES:", df_c) # 
     df_c = carregar_aba_sheets("clientes", ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
     with st.form("c_cli", clear_on_submit=True):
         n, w, e = st.text_input("Nome"), st.text_input("WhatsApp"), st.text_input("Endereço Padrão")
