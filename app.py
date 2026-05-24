@@ -3,13 +3,17 @@ import pandas as pd
 import time
 import urllib.parse
 import os
+import requests
 from datetime import datetime
 from fpdf import FPDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DO SISTEMA ---
-# IMPORTANTE: Coloque o ID de letras e números da sua planilha real aqui
+# 1. Coloque o ID da sua planilha aqui
 SPREADSHEET_ID = "1Z3AKmim2N-zfPCagSyGmY-kwPdy0fCwFYt81uMUsaxE"
+
+# 2. COLE AQUI A URL QUE VOCÊ COPIOU NO PASSO 9 DO GOOGLE
+WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzcfdzRLU4ba6GxeY_MS2Fq6Hl1NAzUALdzq-WQ-eqCLBL57ue62c0hTE4_8D3t7YGREQ/exec"
 
 COR_LARANJA = "#FF8C00"
 COR_PRETO = "#1A1A1A"
@@ -32,6 +36,26 @@ def carregar_aba_sheets(nome_aba):
     except Exception as e:
         st.sidebar.error(f"Erro na aba '{nome_aba}'")
         return pd.DataFrame()
+
+def salvar_no_sheets(nome_original, novo_nome, novo_whats, novo_end):
+    if not WEBAPP_URL or "COLE_AQUI" in WEBAPP_URL:
+        st.error("Configure a URL do Apps Script na linha 15.")
+        return False
+    try:
+        dados = {
+            "spreadsheet_id": SPREADSHEET_ID,
+            "aba": "clientes",
+            "nome_original": nome_original,
+            "novo_nome": novo_nome,
+            "novo_whats": novo_whats,
+            "novo_end": novo_end
+        }
+        resposta = requests.post(WEBAPP_URL, json=dados)
+        if resposta.status_code == 200:
+            return True
+        return False
+    except:
+        return False
 
 def get_next_id():
     df = carregar_aba_sheets("orcamentos")
@@ -225,18 +249,21 @@ elif aba == "👥 Clientes":
                             n_w = st.text_input("WhatsApp", value=r.get(c_whats, ""))
                             n_e = st.text_input("Endereço", value=r.get(c_end, ""))
                             
-                            if st.form_submit_button("💾 Salvar"):
-                                st.success("Pronto!")
-                                r[c_nome] = n_n
-                                if c_whats in r: r[c_whats] = n_w
-                                if c_end in r: r[c_end] = n_e
-                                time.sleep(0.5)
-                                st.rerun()
+                            if st.form_submit_button("💾 Salvar permanentemente"):
+                                with st.spinner("Salvando no Google Sheets..."):
+                                    sucesso = salvar_no_sheets(nome_orig, n_n, n_w, n_e)
+                                    if sucesso:
+                                        st.success("Alterado com sucesso!")
+                                        st.cache_data.clear()
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.error("Erro ao salvar. Verifique a configuração.")
     else:
-        st.info("Nenhum cliente listado. Verifique os dados ou clique em 'Sincronizar'.")
+        st.info("Nenhum cliente listado.")
 
 elif aba == "🛠️ Agenda":
-    st.title("🛠️ Agenda Técnica")
+    st.title("🛠️ Agenda Técnico")
     df_v = carregar_aba_sheets("visitas")
     
     if not df_v.empty:
@@ -306,5 +333,3 @@ elif aba == "📊 Histórico":
                         t_txt = r.get(tot_col, '0.00') if tot_col else '0.00'
                         s_txt = r.get(st_col, 'Pendente') if st_col else 'Pendente'
                         st.write(f"**Nº {i_txt} — {r[cli_col]}**\n\nInvestimento: R$ {t_txt} | Status: {s_txt}")
-    else:
-        st.info("Nenhum histórico encontrado.")
