@@ -8,7 +8,7 @@ from fpdf import FPDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DO SISTEMA ---
-# IMPORTANTE: Garanta que o ID abaixo seja o de letras e números da sua planilha real
+# IMPORTANTE: Coloque o ID de letras e números da sua planilha entre as aspas
 SPREADSHEET_ID = "1A2B3C4D_SUA_ID_REAL_JA_ESTA_SALVA_AQUI"
 
 COR_LARANJA = "#FF8C00"
@@ -18,7 +18,6 @@ CAL_ID = "luizvszahra@gmail.com"
 # --- ENGINE DE CONEXÃO COM O GOOGLE SHEETS ---
 def carregar_aba_sheets(nome_aba, colunas_padrao):
     try:
-        # Codifica o nome da aba de forma limpa para evitar quebras com espaços invisíveis
         aba_codificada = urllib.parse.quote(nome_aba.strip())
         url = (
             f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/"
@@ -30,9 +29,8 @@ def carregar_aba_sheets(nome_aba, colunas_padrao):
         df.columns = df.columns.str.strip()
         return df.fillna("").astype(str)
     except Exception as e:
-        # Exibe o log técnico detalhado na barra lateral para acompanhamento profissional
-        st.sidebar.error(f"Erro na aba '{nome_aba}': Verifique o nome exato no Sheets.")
-        print(f"Log Técnico - Erro na aba '{nome_aba}': {e}")
+        st.sidebar.error(f"Erro na aba '{nome_aba}': Verifique o nome no Sheets.")
+        print(f"Log Erro '{nome_aba}': {e}")
         return pd.DataFrame(columns=colunas_padrao)
 
 def salvar_no_sheets(nome_aba, novo_df, colunas_padrao):
@@ -45,8 +43,7 @@ def get_next_id():
     if df.empty or not df.columns.str.contains('id', case=False).any(): 
         return "1000"
     try:
-        ids = pd.to_numeric(df["ID"], errors='coerce')
-        ids = ids.dropna()
+        ids = pd.to_numeric(df["ID"], errors='coerce').dropna()
         return "1000" if ids.empty else str(int(ids.max() + 1))
     except: 
         return "1000"
@@ -60,10 +57,7 @@ def enviar_whatsapp(nome, tel, dt, hr, ender):
     num = "".join(c for c in str(tel) if c.isdigit())
     if not num.startswith("55"): 
         num = "55" + num
-    return (
-        f"https://api.whatsapp.com/send?phone={num}"
-        f"&text={urllib.parse.quote(m)}"
-    )
+    return f"https://api.whatsapp.com/send?phone={num}&text={urllib.parse.quote(m)}"
 
 def calc_maps(ender):
     if not ender: 
@@ -140,15 +134,4 @@ def out_pdf(idx, dt, cli, ender, apr, items, tot):
                 
         pdf.ln(4)
         pdf.set_fill_color(255, 140, 0)
-        pdf.set_text_color(255, 255, 255)
-        pdf.cell(145, 10, "TOTAL: ", align="R", fill=True)
-        pdf.cell(45, 10, f"R$ {float(tot):.2f}", align="R", fill=True, ln=True)
-        
-        pdf.ln(20)
-        y_v = pdf.get_y()
-        pdf.line(20, y_v, 90, y_v)
-        pdf.set_y(y_v + 2)
-        pdf.set_x(20)
-        pdf.cell(70, 5, "TECNICO ZAHRA", align="C")
-        
-        n_f
+        pdf.set_text_color(255, 255, 25
