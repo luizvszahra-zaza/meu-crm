@@ -169,14 +169,11 @@ elif aba == "👥 Clientes":
     df_c = carregar_aba_sheets("clientes", ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
     
     st.write("### Lista de Clientes Registrados")
-    if not df_c.empty and "Nome" in df_c.columns:
-        for i, r in df_c.iterrows():
-           st.write("### Lista de Clientes Registrados")
     if not df_c.empty:
-        # Força todas as colunas a ficarem com nome minúsculo no código para não dar erro
+        # Corrige espaços e joga tudo para minúsculo para evitar erros de digitação
         df_c.columns = df_c.columns.str.strip().str.lower()
         
-        # Procura as colunas mesmo se mudarem de nome
+        # Identifica as colunas de forma inteligente
         col_nome = 'nome' if 'nome' in df_c.columns else df_c.columns[0]
         col_end = 'endereco' if 'endereco' in df_c.columns else ('endereço' if 'endereço' in df_c.columns else df_c.columns[0])
         col_whats = 'whatsapp' if 'whatsapp' in df_c.columns else df_c.columns[0]
@@ -185,8 +182,9 @@ elif aba == "👥 Clientes":
             if str(r[col_nome]).strip():
                 with st.expander(f"👤 {r[col_nome]}"):
                     st.write(f"📍 Endereço: {r[col_end]}\n\n📞 WhatsApp: {r[col_whats]}")
-    else: st.info("Buscando clientes na planilha... Clique em Sincronizar se necessário.")
-    else: st.info("Buscando clientes na planilha... Clique em Sincronizar se necessário.")
+    else:
+        st.info("Buscando clientes na planilha... Clique em Sincronizar se necessário.")
+    
 
 # --- 🛠️ AGENDA ---
 elif aba == "🛠️ Agenda":
