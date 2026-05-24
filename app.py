@@ -32,7 +32,6 @@ def carregar_aba_sheets(nome_aba):
         df.columns = df.columns.str.strip()
         df = df.fillna("").astype(str)
         
-        # LIMPEZA AUTOMÁTICA DE .0: Remove de qualquer coluna (WhatsApp, ID, etc.)
         for col in df.columns:
             df[col] = df[col].apply(lambda x: x[:-2] if x.endswith(".0") else x)
             
@@ -41,23 +40,10 @@ def carregar_aba_sheets(nome_aba):
         st.sidebar.error(f"Erro na aba '{nome_aba}'")
         return pd.DataFrame()
 
-def salvar_no_sheets(nome_original, novo_nome, novo_whats, novo_end):
-    if not WEBAPP_URL or "COLE_AQUI" in WEBAPP_URL:
-        st.error("Configure a URL do Apps Script na linha 11.")
-        return False
+def enviar_dados_sheets(dados):
     try:
-        dados = {
-            "spreadsheet_id": SPREADSHEET_ID,
-            "aba": "clientes",
-            "nome_original": nome_original,
-            "novo_nome": novo_nome,
-            "novo_whats": novo_whats,
-            "novo_end": novo_end
-        }
         resposta = requests.post(WEBAPP_URL, json=dados, timeout=10)
-        if resposta.status_code == 200:
-            return True
-        return False
+        return resposta.status_code == 200
     except:
         return False
 
@@ -180,6 +166,7 @@ with st.sidebar:
     opcoes = ["🏠 Painel Principal", "👥 Clientes", "🛠️ Agenda", "💰 Novo Orçamento", "📊 Histórico"]
     aba = st.radio("Navegação", opcoes, key="aba_atual")
 
+# --- 🏠 MODULO 1: DASHBOARD ---
 if aba == "🏠 Painel Principal":
     st.title("🚀 Dashboard Técnico Zahra")
     df_o = carregar_aba_sheets("orcamentos")
@@ -191,8 +178,8 @@ if aba == "🏠 Painel Principal":
         
         if total_col and status_col:
             df_o[total_col] = pd.to_numeric(df_o[total_col], errors='coerce').fillna(0)
-            fat = df_o[df_o[status_col].str.lower() == "aprovado"][total_col].sum()
-            pend = df_o[df_o[status_col].str.lower() == "pendente"][total_col].sum()
+            fat = df_o[df_o[status_col].str.strip().str.lower() == "aprovado"][total_col].sum()
+            pend = df_o[df_o[status_col].str.strip().str.lower() == "pendente"][total_col].sum()
     
     col1, col2 = st.columns(2)
     col1.metric("FATURADO (APROVADO)", f"R$ {fat:.2f}")
@@ -214,15 +201,29 @@ if aba == "🏠 Painel Principal":
             data_col = next((c for c in df_v.columns if c.lower() == 'data'), None)
             hora_col = next((c for c in df_v.columns if c.lower() == 'hora'), None)
             
-            if cli_col:
-                for _, r in df_v.tail(5).iloc[::-1].iterrows():
-                    with st.container(border=True):
-                        d_txt = r.get(data_col, '') if data_col else ''
-                        h_txt = r.get(hora_col, '') if hora_col else ''
-                        st.write(f"⏰ **{d_txt} - {h_txt}**\n👤 {r[cli_col]}")
-                        if end_col:
-                            st.markdown(f"[📍 Abrir no Maps]({calc_maps(r[end_col])})")
+            if cli_col and data_col:
+                hoje_str = datetime.now().strftime('%Y-%m-%d')
+                visitas_futuras = 0
+                
+                for _, r in df_v.iloc[::-1].iterrows():
+                    v_data = r.get(data_col, '')
+                    try:
+                        v_data_dt = datetime.strptime(v_data, '%d/%m/%Y').strftime('%Y-%m-%d')
+                    except:
+                        try: v_data_dt = datetime.strptime(v_data, '%Y-%m-%d').strftime('%Y-%m-%d')
+                        except: v_data_dt = hoje_str
+                    
+                    if v_data_dt >= hoje_str:
+                        visitas_futuras += 1
+                        with st.container(border=True):
+                            h_txt = r.get(hora_col, '') if hora_col else ''
+                            st.write(f"⏰ **{v_data} - {h_txt}**\n👤 {r[cli_col]}")
+                            if end_col:
+                                st.markdown(f"[📍 Abrir no Maps]({calc_maps(r[end_col])})")
+                if visitas_futuras == 0:
+                    st.info("Nenhuma visita agendada para os próximos dias.")
 
+# --- 👥 MODULO 2: CLIENTES ---
 elif aba == "👥 Clientes":
     st.title("👥 Meus Clientes")
     df_c = carregar_aba_sheets("clientes")
@@ -245,7 +246,6 @@ elif aba == "👥 Clientes":
                     st.write(f"📍 Endereço: {r.get(c_end, 'Não informado')}")
                     st.write(f"📞 WhatsApp: {whats_limpo}")
                     
-                    # LINK DIRETO PARA O WHATSAPP DO CLIENTE
                     if whats_limpo and whats_limpo != 'Não informado':
                         link_wpp = enviar_whatsapp(nome_orig, whats_limpo)
                         st.markdown(f"[💬 Abrir Conversa no WhatsApp]({link_wpp})")
@@ -258,23 +258,50 @@ elif aba == "👥 Clientes":
                             n_e = st.text_input("Endereço", value=r.get(c_end, ""))
                             
                             if st.form_submit_button("💾 Salvar permanentemente"):
-                                with st.spinner("Salvando no Google Sheets..."):
-                                    sucesso = salvar_no_sheets(nome_orig, n_n, n_w, n_e)
-                                    if sucesso:
-                                        st.success("Alterado com sucesso!")
+                                with st.spinner("Salvando..."):
+                                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "clientes", "nome_original": nome_orig, "novo_nome": n_n, "novo_whats": n_w, "novo_end": n_e}
+                                    if enviar_dados_sheets(p):
+                                        st.success("Alterado!")
                                         st.cache_data.clear()
-                                        time.sleep(1)
+                                        time.sleep(0.5)
                                         st.rerun()
-                                    else:
-                                        st.error("Erro ao salvar. Verifique a configuração.")
     else:
         st.info("Nenhum cliente listado.")
 
+# --- 🛠️ MODULO 3: AGENDA (AGENDAR E EDITAR) ---
 elif aba == "🛠️ Agenda":
-    st.title("🛠️ Agenda Técnico")
+    st.title("🛠️ Agenda Técnica")
+    
+    df_cl = carregar_aba_sheets("clientes")
     df_v = carregar_aba_sheets("visitas")
     
+    # Formulário para criar agendamento
+    with st.expander("📅 Novo Agendamento Técnico"):
+        if not df_cl.empty:
+            c_nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
+            lista_cli = [""] + list(df_cl[c_nome_col].unique())
+            
+            with st.form("novo_agendamento", clear_on_submit=True):
+                v_cli = st.selectbox("Selecione o Cliente", lista_cli)
+                v_data = st.date_input("Data da Visita", datetime.now())
+                v_hora = st.text_input("Horário (Ex: 14:00)")
+                v_end = st.text_input("Endereço do Serviço")
+                
+                if st.form_submit_button("🚀 Agendar Visita"):
+                    if v_cli and v_hora:
+                        dt_formatada = v_data.strftime('%d/%m/%Y')
+                        p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "criar", "cliente": v_cli, "data": dt_formatada, "hora": v_hora, "endereco": v_end}
+                        if enviar_dados_sheets(p):
+                            st.success("Agendado com sucesso!")
+                            st.cache_data.clear()
+                            time.sleep(0.5)
+                            st.rerun()
+        else:
+            st.warning("Cadastre clientes primeiro.")
+
+    st.write("### Compromissos Agendados")
     if not df_v.empty:
+        id_v_col = next((c for c in df_v.columns if c.lower() == 'id_v'), df_v.columns[0])
         cli_col = next((c for c in df_v.columns if c.lower() == 'cliente'), None)
         end_col = next((c for c in df_v.columns if c.lower() in ['endereco', 'endereço']), None)
         data_col = next((c for c in df_v.columns if c.lower() == 'data'), None)
@@ -282,16 +309,30 @@ elif aba == "🛠️ Agenda":
         
         if cli_col:
             for i, r in df_v.iloc[::-1].iterrows():
-                if str(r[cli_col]).strip():
-                    with st.container(border=True):
-                        d_txt = r.get(data_col, '') if data_col else ''
-                        h_txt = r.get(hora_col, '') if hora_col else ''
-                        st.write(f"📅 **{d_txt} às {h_txt}** — {r[cli_col]}")
-                        if end_col:
-                            st.markdown(f"[📍 Maps]({calc_maps(r[end_col])})")
+                id_v_atual = r.get(id_v_col, str(i))
+                with st.container(border=True):
+                    st.write(f"📅 **{r.get(data_col, '')} às {r.get(hora_col, '')}** — {r[cli_col]}")
+                    if end_col:
+                        st.markdown(f"[📍 Maps]({calc_maps(r[end_col])})")
+                    
+                    if st.checkbox("✏️ Editar Visita", key=f"edit_vis_{id_v_atual}"):
+                        with st.form(f"form_v_{id_v_atual}"):
+                            ed_cli = st.text_input("Cliente", value=r[cli_col])
+                            ed_dt = st.text_input("Data", value=r.get(data_col, ''))
+                            ed_hr = st.text_input("Hora", value=r.get(hora_col, ''))
+                            ed_end = st.text_input("Endereço", value=r.get(end_col, '') if end_col else '')
+                            
+                            if st.form_submit_button("💾 Atualizar Agendamento"):
+                                p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "editar", "id_v": id_v_atual, "cliente": ed_cli, "data": ed_dt, "hora": ed_hr, "endereco": ed_end}
+                                if enviar_dados_sheets(p):
+                                    st.success("Visita Atualizada!")
+                                    st.cache_data.clear()
+                                    time.sleep(0.5)
+                                    st.rerun()
     else:
-        st.info("Nenhum compromisso agendado na planilha.")
+        st.info("Nenhum compromisso agendado.")
 
+# --- 💰 MODULO 4: CRIAR ORÇAMENTO ---
 elif aba == "💰 Novo Orçamento":
     st.title("💰 Criar Orçamento")
     df_cl = carregar_aba_sheets("clientes")
@@ -301,7 +342,7 @@ elif aba == "💰 Novo Orçamento":
         id_f = get_next_id()
         st.subheader(f"📄 Orçamento Nº: {id_f}")
         lista_clientes = [n for n in df_cl[nome_col].unique() if str(n).strip()]
-        esc = st.selectbox("Cliente", [""] + list(lista_clientes))
+        esc = st.selectbox("Cliente", [""] + lista_clientes)
         txt_ap = st.text_area("Escopo do Serviço")
         
         df_b = pd.DataFrame([{"Serviço": "", "Qtd": 1, "Valor Unit. (R$)": 0.0}])
@@ -323,8 +364,9 @@ elif aba == "💰 Novo Orçamento":
         with open(st.session_state.pdf_gerado, "rb") as f:
             st.download_button("📩 Baixar PDF", f, file_name=st.session_state.pdf_gerado)
 
+# --- 📊 MODULO 5: HISTÓRICO DE ORÇAMENTOS (MUDAR STATUS) ---
 elif aba == "📊 Histórico":
-    st.title("📊 Histórico")
+    st.title("📊 Histórico de Orçamentos")
     df_h = carregar_aba_sheets("orcamentos")
     
     if not df_h.empty:
@@ -333,13 +375,32 @@ elif aba == "📊 Histórico":
         tot_col = next((c for c in df_h.columns if c.lower() == 'total'), None)
         st_col = next((c for c in df_h.columns if c.lower() == 'status'), None)
         
-        if cli_col:
+        if cli_col and id_col:
             for i, r in df_h.iloc[::-1].iterrows():
-                if str(r[cli_col]).strip():
+                id_orc_atual = r[id_col]
+                if str(r[cli_col]).strip() and id_orc_atual:
                     with st.container(border=True):
-                        i_txt = r.get(id_col, '') if id_col else ''
                         t_txt = r.get(tot_col, '0.00') if tot_col else '0.00'
                         s_txt = r.get(st_col, 'Pendente') if st_col else 'Pendente'
-                        st.write(f"**Nº {i_txt} — {r[cli_col]}**\n\nInvestimento: R$ {t_txt} | Status: {s_txt}")
+                        
+                        st.write(f"**Orçamento Nº {id_orc_atual} — {r[cli_col]}**")
+                        st.write(f"Investimento: R$ {t_txt} | Status Atual: **{s_txt}**")
+                        
+                        # Controle profissional para fechar orçamento
+                        novo_status = st.selectbox(
+                            "Alterar Status comercial:",
+                            ["Pendente", "Aprovado", "Cancelado"],
+                            index=["pendente", "aprovado", "cancelado"].index(s_txt.strip().lower()) if s_txt.strip().lower() in ["pendente", "aprovado", "cancelado"] else 0,
+                            key=f"status_{id_orc_atual}"
+                        )
+                        
+                        if novo_status != s_txt:
+                            if st.button("💾 Confirmar Mudança", key=f"btn_{id_orc_atual}"):
+                                p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "orcamentos", "id": id_orc_atual, "novo_status": novo_status}
+                                if enviar_dados_sheets(p):
+                                    st.success("Planilha atualizada!")
+                                    st.cache_data.clear()
+                                    time.sleep(0.5)
+                                    st.rerun()
     else:
         st.info("Nenhum histórico encontrado.")
