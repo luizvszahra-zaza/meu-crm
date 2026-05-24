@@ -4,7 +4,7 @@ import time
 import urllib.parse
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from fpdf import FPDF
 import streamlit.components.v1 as components
 
@@ -67,11 +67,44 @@ def enviar_whatsapp(nome, tel):
         num = "55" + num
     return f"https://api.whatsapp.com/send?phone={num}&text={urllib.parse.quote(m)}"
 
-def calc_maps(ender):
-    if not ender: 
-        return "#"
-    base = "https://www.google.com/maps/search/?api=1&query="
-    return base + urllib.parse.quote(str(ender))
+def mensagem_confirmacao_visita(nome, tel, data, hora, endereco):
+    m = (
+        f"Olá {nome}, aqui é o Luiz da Técnico Zahra! ⚡\n\n"
+        f"Passando para confirmar o agendamento da nossa visita técnica:\n"
+        f"📅 Data: {data}\n"
+        f"⏰ Horário: {hora}\n"
+        f"📍 Local: {endereco}\n\n"
+        f"Qualquer dúvida estou à disposição!"
+    )
+    num = "".join(c for c in str(tel) if c.isdigit())
+    if not num.startswith("55"): 
+        num = "55" + num
+    return f"https://api.whatsapp.com/send?phone={num}&text={urllib.parse.quote(m)}"
+
+def gerar_link_google_agenda(cliente, data_str, hora_str, endereco):
+    try:
+        dt_v = datetime.strptime(data_str, "%d/%m/%Y")
+        hr_parts = hora_str.split(":")
+        hr = int(hr_parts[0])
+        mn = int(hr_parts[1]) if len(hr_parts) > 1 else 0
+        
+        dt_inicio = dt_v.replace(hour=hr, minute=mn)
+        dt_fim = dt_inicio + timedelta(hours=1)
+        
+        fmt = "%Y%m%dT%H%M%S"
+        dates = f"{dt_inicio.strftime(fmt)}/{dt_fim.strftime(fmt)}"
+        
+        titulo = f"Visita Técnica: {cliente} ⚡"
+        detalhes = f"Visita agendada via Técnico Zahra CRM.\nLocal: {endereco}"
+        
+        base_url = "https://calendar.google.com/calendar/render?action=TEMPLATE"
+        return (
+            f"{base_url}&text={urllib.parse.quote(titulo)}"
+            f"&dates={dates}&details={urllib.parse.quote(detalhes)}"
+            f"&location={urllib.parse.quote(endereco)}&sf=true&output=xml"
+        )
+    except:
+        return "https://calendar.google.com"
 
 # --- CONFIGURAÇÃO DE ESTADOS ---
 if 'pdf_gerado' not in st.session_state:
@@ -295,7 +328,7 @@ elif aba == "👥 Clientes":
     else:
         st.info("Nenhum cliente listado.")
 
-# --- 🛠️ MODULO 3: AGENDA (100% AUTOMÁTICO SEM BOTÃO DE REDIRECIONAR) ---
+# --- 🛠️ MODULO 3: AGENDA (AÇÕES RÁPIDAS APÓS SALVAR) ---
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
     
@@ -306,34 +339,44 @@ elif aba == "🛠️ Agenda":
     if not df_cl.empty:
         c_nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
         c_end_col = next((c for c in df_cl.columns if c.lower() in ['endereco', 'endereço']), None)
+        c_whats_col = next((c for c in df_cl.columns if c.lower() in ['whatsapp', 'whats']), None)
         
         lista_cli = [""] + list(df_cl[c_nome_col].unique())
         v_cli = st.selectbox("Selecione o Cliente", lista_cli, key="sel_cli_agenda")
         
         end_sugerido = ""
-        if v_cli and c_end_col:
+        whats_sugerido = ""
+        if v_cli:
             dados_cliente = df_cl[df_cl[c_nome_col] == v_cli]
             if not dados_cliente.empty:
-                end_sugerido = dados_cliente.iloc[0].get(c_end_col, "")
+                if c_end_col: end_sugerido = dados_cliente.iloc[0].get(c_end_col, "")
+                if c_whats_col: whats_sugerido = dados_cliente.iloc[0].get(c_whats_col, "")
         
-        with st.form("novo_agendamento", clear_on_submit=True):
+        with st.form("novo_agendamento", clear_on_submit=False):
             v_data = st.date_input("Data da Visita", datetime.now())
             v_hora = st.text_input("Horário (Ex: 14:00)")
             v_end = st.text_input("Endereço do Serviço", value=end_sugerido)
             
-            if st.form_submit_button("🚀 Confirmar Agendamento"):
+            confirmou = st.form_submit_button("🚀 Confirmar Agendamento")
+            
+            if confirmou:
                 if v_cli and v_hora:
                     dt_formatada = v_data.strftime('%d/%m/%Y')
                     p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "criar", "cliente": v_cli, "data": dt_formatada, "hora": v_hora, "endereco": v_end}
                     
-                    with st.spinner("Agendando no sistema e no seu Google Agenda..."):
+                    with st.spinner("Salvando na Planilha..."):
                         if enviar_dados_sheets(p):
-                            st.success("⚡ Agendamento realizado com sucesso na Planilha e no seu Google Agenda!")
+                            st.success("⚡ Agendamento salvo com sucesso!")
+                            
+                            # GERA AS DUAS AÇÕES RÁPIDAS DIRETAS NA TELA
+                            link_wpp_msg = mensagem_confirmacao_visita(v_cli, whats_sugerido, dt_formatada, v_hora, v_end)
+                            link_agenda = gerar_link_google_agenda(v_cli, dt_formatada, v_hora, v_end)
+                            
+                            st.write("### 📌 Próximos Passos Obrigatórios:")
+                            st.markdown(f"[💬 ENVIAR CONFIRMAÇÃO NO WHATSAPP DO CLIENTE]({link_wpp_msg})")
+                            st.markdown(f"[📅 SALVAR NA SUA GOOGLE AGENDA]({link_agenda})")
+                            
                             st.cache_data.clear()
-                            time.sleep(1.5)
-                            st.rerun()
-                        else:
-                            st.error("Erro na comunicação com o servidor.")
                 else:
                     st.warning("Selecione um cliente e defina o horário.")
     else:
