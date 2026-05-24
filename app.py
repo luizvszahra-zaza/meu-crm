@@ -10,10 +10,10 @@ import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DO SISTEMA ---
 # 1. Coloque o ID da sua planilha aqui
-SPREADSHEET_ID = "1Z3AKmim2N-zfPCagSyGmY-kwPdy0fCwFYt81uMUsaxE"
+SPREADSHEET_ID = "1A2B3C4D_SUA_ID_REAL_JA_ESTA_SALVA_AQUI"
 
-# 2. COLE AQUI A URL QUE VOCÊ COPIOU NO PASSO 9 DO GOOGLE
-WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzcfdzRLU4ba6GxeY_MS2Fq6Hl1NAzUALdzq-WQ-eqCLBL57ue62c0hTE4_8D3t7YGREQ/exec"
+# 2. Insira a URL do seu Apps Script aqui
+WEBAPP_URL = "COLE_AQUI_A_URL_DO_APPS_SCRIPT"
 
 COR_LARANJA = "#FF8C00"
 COR_PRETO = "#1A1A1A"
@@ -65,6 +65,8 @@ def get_next_id():
     if not id_col:
         return "1000"
     try:
+        # Remove o .0 caso o ID também venha formatado como float
+        df[id_col] = df[id_col].astype(str).str.replace(".0", "", regex=False)
         ids = pd.to_numeric(df[id_col], errors='coerce').dropna()
         return "1000" if ids.empty else str(int(ids.max() + 1))
     except: 
@@ -239,14 +241,19 @@ elif aba == "👥 Clientes":
         for i, r in df_c.iterrows():
             nome_orig = str(r[c_nome]).strip()
             if nome_orig:
+                # TRATAMENTO DO TELEFONE: Limpa o descritivo decimal .0 da string
+                whats_limpo = str(r.get(c_whats, 'Não informado')).strip()
+                if whats_limpo.endswith(".0"):
+                    whats_limpo = whats_limpo[:-2]
+                
                 with st.expander(f"👤 {nome_orig}"):
                     st.write(f"📍 Endereço: {r.get(c_end, 'Não informado')}")
-                    st.write(f"📞 WhatsApp: {r.get(c_whats, 'Não informado')}")
+                    st.write(f"📞 WhatsApp: {whats_limpo}")
                     
                     if st.checkbox("✏️ Editar", key=f"edit_{i}"):
                         with st.form(f"f_{i}", clear_on_submit=False):
                             n_n = st.text_input("Nome", value=r[c_nome])
-                            n_w = st.text_input("WhatsApp", value=r.get(c_whats, ""))
+                            n_w = st.text_input("WhatsApp", value=whats_limpo)
                             n_e = st.text_input("Endereço", value=r.get(c_end, ""))
                             
                             if st.form_submit_button("💾 Salvar permanentemente"):
@@ -293,7 +300,7 @@ elif aba == "💰 Novo Orçamento":
         id_f = get_next_id()
         st.subheader(f"📄 Orçamento Nº: {id_f}")
         lista_clientes = [n for n in df_cl[nome_col].unique() if str(n).strip()]
-        esc = st.selectbox("Cliente", [""] + lista_clientes)
+        esc = st.selectbox("Cliente", [""] + list(lista_clientes))
         txt_ap = st.text_area("Escopo do Serviço")
         
         df_b = pd.DataFrame([{"Serviço": "", "Qtd": 1, "Valor Unit. (R$)": 0.0}])
@@ -330,6 +337,9 @@ elif aba == "📊 Histórico":
                 if str(r[cli_col]).strip():
                     with st.container(border=True):
                         i_txt = r.get(id_col, '') if id_col else ''
+                        if i_txt.endswith(".0"): i_txt = i_txt[:-2]
                         t_txt = r.get(tot_col, '0.00') if tot_col else '0.00'
                         s_txt = r.get(st_col, 'Pendente') if st_col else 'Pendente'
                         st.write(f"**Nº {i_txt} — {r[cli_col]}**\n\nInvestimento: R$ {t_txt} | Status: {s_txt}")
+    else:
+        st.info("Nenhum histórico encontrado.")
