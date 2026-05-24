@@ -6,7 +6,7 @@ from fpdf import FPDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DE CONFIGURAÇÃO DIRETA ---
-# Mantém a ID da sua planilha que funcionou perfeitamente
+# LEMBRE-SE DE TROCAR ESTE TEXTO ABAIXO PELA ID REAL DA SUA PLANILHA
 SPREADSHEET_ID = "1A2B3C4D_SUA_ID_REAL_JA_ESTA_SALVA_AQUI" 
 
 COR_LARANJA, COR_PRETO = "#FF8C00", "#1A1A1A"
@@ -135,113 +135,4 @@ with st.sidebar:
 # --- 🏠 PAINEL ---
 if aba == "🏠 Painel Principal":
     st.title("🚀 Dashboard Técnico Zahra")
-    df_o = carregar_aba_sheets("orcamentos", ["ID", "Data", "Cliente", "Total", "Status", "Apresentacao", "Itens_JSON"])
-    fat = pend = 0
-    if not df_o.empty and "Total" in df_o.columns:
-        df_o["Total"] = pd.to_numeric(df_o["Total"], errors='coerce').fillna(0)
-        fat = df_o[df_o["Status"] == "Aprovado"]["Total"].sum()
-        pend = df_o[df_o["Status"] == "Pendente"]["Total"].sum()
-    
-    col1, col2 = st.columns(2)
-    col1.metric("FATURADO (APROVADO)", f"R$ {fat:.2f}")
-    col2.metric("PENDENTE", f"R$ {pend:.2f}")
-
-    st.divider()
-    c_cal, c_age = st.columns([4, 2])
-    with c_cal:
-        st.subheader("📅 Seu Calendário Google")
-        components.iframe("https://calendar.google.com/calendar/embed?src=" + CAL_ID + "&ctz=America%2FSao_Paulo&bgcolor=%23ffffff", height=500)
-    with c_age:
-        st.subheader("📌 Próximas Visitas")
-        df_v = carregar_aba_sheets("visitas", ["ID_V", "Cliente", "Data", "Hora", "Descricao", "Endereco", "Checklist"])
-        if not df_v.empty and "Cliente" in df_v.columns:
-            for _, r in df_v.tail(5).iloc[::-1].iterrows():
-                with st.container(border=True):
-                    st.write(f"⏰ **{r['Data']} - {r['Hora']}**\n👤 {r['Cliente']}")
-                    st.markdown(f"[📍 Abrir no Maps]({calc_maps(r['Endereco'])})")
-
-# --- 👥 CLIENTES ---
-elif aba == "👥 Clientes":
-    st.title("👥 Meus Clientes")
-    df_c = carregar_aba_sheets("clientes", ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
-    
-    st.write("### Lista de Clientes Registrados")
-    if not df_c.empty:
-        df_c.columns = df_c.columns.str.strip().str.lower()
-        
-        col_nome = 'nome' if 'nome' in df_c.columns else df_c.columns[0]
-        col_end = 'endereco' if 'endereco' in df_c.columns else ('endereço' if 'endereço' in df_c.columns else df_c.columns[0])
-        col_whats = 'whatsapp' if 'whatsapp' in df_c.columns else df_c.columns[0]
-        
-        for i, r in df_c.iterrows():
-            nome_original = str(r[col_nome]).strip()
-            if nome_original:
-                with st.expander(f"👤 {nome_original}"):
-                    st.write(f"📍 Endereço atual: {r[col_end]}")
-                    st.write(f"📞 WhatsApp atual: {r[col_whats]}")
-                    
-                    com_editar = st.checkbox("✏️ Editar informações deste cliente", key=f"edit_{i}")
-                    if com_editar:
-                        with st.form(f"form_edit_{i}", clear_on_submit=False):
-                            novo_nome = st.text_input("Alterar Nome", value=r[col_nome])
-                            novo_whats = st.text_input("Alterar WhatsApp", value=r[col_whats])
-                            novo_end = st.text_input("Alterar Endereço", value=r[col_end])
-                            
-                            if st.form_submit_button("💾 Salvar Alterações"):
-                                st.success(f"Alterações preparadas para {nome_original}!")
-                                st.info(f"👉 Acesse sua planilha Google Sheets 'CRM_Zahra' na aba 'clientes' para aplicar ou confirmar a alteração permanentemente se necessário.")
-                                r[col_nome] = novo_nome
-                                r[col_whats] = novo_whats
-                                r[col_end] = novo_end
-                                time.sleep(0.5)
-                                st.rerun()
-    else:
-        st.info("Buscando clientes na planilha... Clique em Sincronizar se necessário.")
-
-# --- 🛠️ AGENDA ---
-elif aba == "🛠️ Agenda":
-    st.title("🛠️ Agenda Técnica")
-    df_v = carregar_aba_sheets("visitas", ["ID_V", "Cliente", "Data", "Hora", "Descricao", "Endereco", "Checklist"])
-    
-    st.write("### Compromissos na Planilha")
-    if not df_v.empty and "Cliente" in df_v.columns:
-        for i, r in df_v.iloc[::-1].iterrows():
-            if str(r['Cliente']).strip():
-                with st.container(border=True):
-                    st.write(f"📅 **{r['Data']} às {r['Hora']}** — Cliente: {r['Cliente']}")
-                    st.markdown(f"[📍 Ver no Google Maps]({calc_maps(r['Endereco'])})")
-
-# --- 💰 NOVO ORÇAMENTO ---
-elif aba == "💰 Novo Orçamento":
-    st.title("💰 Criar Orçamento")
-    df_cl = carregar_aba_sheets("clientes", ["Nome", "Documento", "WhatsApp", "Endereco", "Data"])
-    if not df_cl.empty and "Nome" in df_cl.columns:
-        id_f = get_next_id()
-        st.subheader(f"📄 Orçamento Nº: {id_f}")
-        esc = st.selectbox("Selecione o Cliente", [""] + list(df_cl["Nome"]))
-        txt_ap = st.text_area("Escopo/Apresentação do Serviço")
-        
-        df_b = pd.DataFrame([{"Serviço": "", "Qtd": 1, "Valor Unit. (R$)": 0.0}])
-        it = st.data_editor(df_b, num_rows="dynamic", use_container_width=True)
-        tot = (pd.to_numeric(it["Valor Unit. (R$)"], errors='coerce').fillna(0) * pd.to_numeric(it["Qtd"], errors='coerce').fillna(0)).sum()
-        st.write(f"### Total Geral: R$ {tot:.2f}")
-        
-        if st.button("🚀 Gerar PDF"):
-            if esc:
-                st.session_state.pdf_gerado = out_pdf(id_f, datetime.now().strftime('%d/%m/%Y'), esc, "", txt_ap, it, tot)
-                st.rerun()
-    else: st.warning("Adicione dados na planilha primeiro.")
-
-    if st.session_state.pdf_gerado and os.path.exists(st.session_state.pdf_gerado):
-        with open(st.session_state.pdf_gerado, "rb") as f:
-            st.download_button("📩 Baixar PDF do Orçamento", f, file_name=st.session_state.pdf_gerado)
-
-# --- 📊 HISTÓRICO ---
-elif aba == "📊 Histórico":
-    st.title("📊 Histórico de Orçamentos")
-    df_h = carregar_aba_sheets("orcamentos", ["ID", "Data", "Cliente", "Total", "Status", "Apresentacao", "Itens_JSON"])
-    if not df_h.empty and "Cliente" in df_h.columns:
-        for i, r in df_h.iloc[::-1].iterrows():
-            if str(r['Cliente']).strip():
-                with st.container(border=True):
-                    st.write(f"**Orçamento Nº {r['ID']} — {r['Cliente']}**\n\nInvestimento: R$ {r['Total']} | Data: {r['Data']} | Status: {r['Status']}")
+    df_o = carregar_aba_sheets("orcamentos",
