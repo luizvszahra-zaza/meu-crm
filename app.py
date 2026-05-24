@@ -223,12 +223,11 @@ if aba == "🏠 Painel Principal":
                 if visitas_futuras == 0:
                     st.info("Nenhuma visita agendada para os próximos dias.")
 
-# --- 👥 MODULO 2: CLIENTES (COM CADASTRO E EDIÇÃO) ---
+# --- 👥 MODULO 2: CLIENTES ---
 elif aba == "👥 Clientes":
     st.title("👥 Meus Clientes")
     df_c = carregar_aba_sheets("clientes")
     
-    # FORMULÁRIO DE NOVO CADASTRO
     with st.expander("👤 Cadastrar Novo Cliente"):
         with st.form("cadastro_cliente", clear_on_submit=True):
             cad_nome = st.text_input("Nome Completo do Cliente")
@@ -296,35 +295,48 @@ elif aba == "👥 Clientes":
     else:
         st.info("Nenhum cliente listado.")
 
-# --- 🛠️ MODULO 3: AGENDA ---
+# --- 🛠️ MODULO 3: AGENDA (BUSCA AUTOMÁTICA DE ENDEREÇO) ---
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
     
     df_cl = carregar_aba_sheets("clientes")
     df_v = carregar_aba_sheets("visitas")
     
-    with st.expander("📅 Novo Agendamento Técnico"):
-        if not df_cl.empty:
-            c_nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
-            lista_cli = [""] + list(df_cl[c_nome_col].unique())
+    # Lógica de preenchimento automático fora do formulário para evitar travas
+    st.subheader("📅 Novo Agendamento Técnico")
+    if not df_cl.empty:
+        c_nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
+        c_end_col = next((c for c in df_cl.columns if c.lower() in ['endereco', 'endereço']), None)
+        
+        lista_cli = [""] + list(df_cl[c_nome_col].unique())
+        v_cli = st.selectbox("Selecione o Cliente", lista_cli, key="sel_cli_agenda")
+        
+        # Procura o endereço do cliente selecionado para sugerir no campo
+        end_sugerido = ""
+        if v_cli and c_end_col:
+            dados_cliente = df_cl[df_cl[c_nome_col] == v_cli]
+            if not dados_cliente.empty:
+                end_sugerido = dados_cliente.iloc[0].get(c_end_col, "")
+        
+        # Formulário com o endereço já injetado dinamicamente
+        with st.form("novo_agendamento", clear_on_submit=True):
+            v_data = st.date_input("Data da Visita", datetime.now())
+            v_hora = st.text_input("Horário (Ex: 14:00)")
+            v_end = st.text_input("Endereço do Serviço", value=end_sugerido)
             
-            with st.form("novo_agendamento", clear_on_submit=True):
-                v_cli = st.selectbox("Selecione o Cliente", lista_cli)
-                v_data = st.date_input("Data da Visita", datetime.now())
-                v_hora = st.text_input("Horário (Ex: 14:00)")
-                v_end = st.text_input("Endereço do Serviço")
-                
-                if st.form_submit_button("🚀 Agendar Visita"):
-                    if v_cli and v_hora:
-                        dt_formatada = v_data.strftime('%d/%m/%Y')
-                        p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "criar", "cliente": v_cli, "data": dt_formatada, "hora": v_hora, "endereco": v_end}
-                        if enviar_dados_sheets(p):
-                            st.success("Agendado com sucesso!")
-                            st.cache_data.clear()
-                            time.sleep(0.5)
-                            st.rerun()
-        else:
-            st.warning("Cadastre clientes primeiro.")
+            if st.form_submit_button("🚀 Confirmar Agendamento"):
+                if v_cli and v_hora:
+                    dt_formatada = v_data.strftime('%d/%m/%Y')
+                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "criar", "cliente": v_cli, "data": dt_formatada, "hora": v_hora, "endereco": v_end}
+                    if enviar_dados_sheets(p):
+                        st.success("Agendado com sucesso!")
+                        st.cache_data.clear()
+                        time.sleep(0.5)
+                        st.rerun()
+                else:
+                    st.warning("Selecione um cliente e defina o horário.")
+    else:
+        st.warning("Cadastre clientes primeiro para poder agendar.")
 
     st.write("### Compromissos Agendados")
     if not df_v.empty:
@@ -411,7 +423,7 @@ elif aba == "📊 Histórico":
                         s_txt = r.get(st_col, 'Pendente') if st_col else 'Pendente'
                         
                         st.write(f"**Orçamento Nº {id_orc_atual} — {r[cli_col]}**")
-                        st.write(f"Investimento: R$ {t_txt} | Status Atual: **{s_txt}**")
+                        st.write(f"Investimento: R$ {t_txt} | Status Base: **{s_txt}**")
                         
                         novo_status = st.selectbox(
                             "Alterar Status comercial:",
@@ -424,7 +436,7 @@ elif aba == "📊 Histórico":
                             if st.button("💾 Confirmar Mudança", key=f"btn_{id_orc_atual}"):
                                 p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "orcamentos", "id": id_orc_atual, "novo_status": novo_status}
                                 if enviar_dados_sheets(p):
-                                    st.success("Planilha updated!")
+                                    st.success("Status atualizado!")
                                     st.cache_data.clear()
                                     time.sleep(0.5)
                                     st.rerun()
