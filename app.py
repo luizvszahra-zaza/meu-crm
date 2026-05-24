@@ -9,7 +9,7 @@ import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DO SISTEMA ---
 # IMPORTANTE: Coloque o ID de letras e números da sua planilha real aqui
-SPREADSHEET_ID = "1A2B3C4D_SUA_ID_REAL_JA_ESTA_SALVA_AQUI"
+SPREADSHEET_ID = "1Z3AKmim2N-zfPCagSyGmY-kwPdy0fCwFYt81uMUsaxE"
 
 COR_LARANJA = "#FF8C00"
 COR_PRETO = "#1A1A1A"
