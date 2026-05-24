@@ -8,7 +8,7 @@ from fpdf import FPDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DO SISTEMA ---
-# IMPORTANTE: Insira o ID da sua planilha aqui
+# IMPORTANTE: Substitua pelas letras e números da sua planilha real
 SPREADSHEET_ID = "1A2B3C4D_SUA_ID_REAL_JA_ESTA_SALVA_AQUI"
 
 COR_LARANJA = "#FF8C00"
@@ -27,6 +27,8 @@ def carregar_aba_sheets(nome_aba, colunas_padrao):
         df = pd.read_csv(url)
         if df.empty:
             return pd.DataFrame(columns=colunas_padrao)
+        
+        # Limpa espaços em branco antes e depois do nome de cada coluna
         df.columns = df.columns.str.strip()
         return df.fillna("").astype(str)
     except Exception as e:
@@ -40,10 +42,14 @@ def salvar_no_sheets(nome_aba, novo_df, colunas_padrao):
 def get_next_id():
     cols = ["ID", "Data", "Cliente", "Total", "Status"]
     df = carregar_aba_sheets("orcamentos", cols)
-    if df.empty or "ID" not in df.columns: 
+    if df.empty:
+        return "1000"
+    
+    id_col = next((c for c in df.columns if c.lower() == 'id'), None)
+    if not id_col:
         return "1000"
     try:
-        ids = pd.to_numeric(df["ID"], errors='coerce')
+        ids = pd.to_numeric(df[id_col], errors='coerce')
         ids = ids.dropna()
         return "1000" if ids.empty else str(int(ids.max() + 1))
     except: 
@@ -92,7 +98,6 @@ class PDF_Zahra(FPDF):
         self.cell(0, 5, msg, ln=True)
         self.ln(15)
 
-# Linhas estritamente curtas para impedir quebras do chat
 def out_pdf(
     idx,
     dt,
@@ -181,7 +186,6 @@ if aba == "🏠 Painel Principal":
     df_o = carregar_aba_sheets("orcamentos", cols)
     fat = pend = 0
     
-    df_o.columns = df_o.columns.str.strip()
     status_col = next((c for c in df_o.columns if c.lower() == 'status'), None)
     total_col = next((c for c in df_o.columns if c.lower() == 'total'), None)
     
@@ -205,9 +209,8 @@ if aba == "🏠 Painel Principal":
         cols_v = ["ID_V", "Cliente", "Data", "Hora", "Endereco"]
         df_v = carregar_aba_sheets("visitas", cols_v)
         
-        df_v.columns = df_v.columns.str.strip()
         cli_col = next((c for c in df_v.columns if c.lower() == 'cliente'), None)
-        end_col = next((c for c in df_v.columns if c.lower() == 'endereco'), None)
+        end_col = next((c for c in df_v.columns if c.lower() in ['endereco', 'endereço']), None)
         
         if not df_v.empty and cli_col:
             for _, r in df_v.tail(5).iloc[::-1].iterrows():
@@ -223,40 +226,46 @@ elif aba == "👥 Clientes":
     
     st.write("### Lista de Clientes Registrados")
     if not df_c.empty:
-        df_c.columns = df_c.columns.str.strip()
-        c_nome = next((c for c in df_c.columns if c.lower() == 'nome'), df_c.columns[0])
-        c_end = next((c for c in df_c.columns if c.lower() in ['endereco', 'endereço']), df_c.columns[0])
-        c_whats = next((c for c in df_c.columns if c.lower() in ['whatsapp', 'whats']), df_c.columns[0])
+        # Encontra colunas de forma inteligente sem importar maiúsculas/minúsculas
+        c_nome = next((c for c in df_c.columns if c.lower() == 'nome'), None)
+        c_end = next((c for c in df_c.columns if c.lower() in ['endereco', 'endereço']), None)
+        c_whats = next((c for c in df_c.columns if c.lower() in ['whatsapp', 'whats']), None)
+        
+        # Fallback caso não encontre pelo nome inteligente
+        c_nome = c_nome if c_nome else df_c.columns[0]
+        c_end = c_end if c_end else (df_c.columns[3] if len(df_c.columns) > 3 else df_c.columns[0])
+        c_whats = c_whats if c_whats else (df_c.columns[2] if len(df_c.columns) > 2 else df_c.columns[0])
         
         for i, r in df_c.iterrows():
             nome_orig = str(r[c_nome]).strip()
             if nome_orig:
                 with st.expander(f"👤 {nome_orig}"):
-                    st.write(f"📍 Endereço: {r[c_end]}")
-                    st.write(f"📞 WhatsApp: {r[c_whats]}")
+                    st.write(f"📍 Endereço: {r.get(c_end, 'Não informado')}")
+                    st.write(f"📞 WhatsApp: {r.get(c_whats, 'Não informado')}")
                     
                     if st.checkbox("✏️ Editar", key=f"edit_{i}"):
                         with st.form(f"f_{i}", clear_on_submit=False):
                             n_n = st.text_input("Nome", value=r[c_nome])
-                            n_w = st.text_input("WhatsApp", value=r[c_whats])
-                            n_e = st.text_input("Endereço", value=r[c_end])
+                            n_w = st.text_input("WhatsApp", value=r.get(c_whats, ""))
+                            n_e = st.text_input("Endereço", value=r.get(c_end, ""))
                             
                             if st.form_submit_button("💾 Salvar"):
                                 st.success("Pronto!")
-                                r[c_nome], r[c_whats], r[c_end] = n_n, n_w, n_e
+                                r[c_nome] = n_n
+                                if c_whats in r: r[c_whats] = n_w
+                                if c_end in r: r[c_end] = n_e
                                 time.sleep(0.5)
                                 st.rerun()
     else:
-        st.info("Nenhum cliente listado. Clique em 'Sincronizar'.")
+        st.info("Nenhum cliente listado. Clique em 'Sincronizar' ou verifique as colunas da planilha.")
 
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
     cols_v = ["ID_V", "Cliente", "Data", "Hora", "Endereco"]
     df_v = carregar_aba_sheets("visitas", cols_v)
     
-    df_v.columns = df_v.columns.str.strip()
     cli_col = next((c for c in df_v.columns if c.lower() == 'cliente'), None)
-    end_col = next((c for c in df_v.columns if c.lower() == 'endereco'), None)
+    end_col = next((c for c in df_v.columns if c.lower() in ['endereco', 'endereço']), None)
     
     if not df_v.empty and cli_col:
         for i, r in df_v.iloc[::-1].iterrows():
@@ -270,13 +279,14 @@ elif aba == "💰 Novo Orçamento":
     st.title("💰 Criar Orçamento")
     df_cl = carregar_aba_sheets("clientes", ["Nome"])
     
-    df_cl.columns = df_cl.columns.str.strip()
     nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), None)
+    nome_col = nome_col if nome_col else (df_cl.columns[0] if not df_cl.empty else None)
     
     if not df_cl.empty and nome_col:
         id_f = get_next_id()
         st.subheader(f"📄 Orçamento Nº: {id_f}")
-        esc = st.selectbox("Cliente", [""] + list(df_cl[nome_col]))
+        lista_clientes = [n for n in df_cl[nome_col].unique() if str(n).strip()]
+        esc = st.selectbox("Cliente", [""] + lista_clientes)
         txt_ap = st.text_area("Escopo do Serviço")
         
         df_b = pd.DataFrame([{"Serviço": "", "Qtd": 1, "Valor Unit. (R$)": 0.0}])
@@ -292,7 +302,7 @@ elif aba == "💰 Novo Orçamento":
                 st.session_state.pdf_gerado = out_pdf(id_f, hoje, esc, "", txt_ap, it, tot)
                 st.rerun()
     else:
-        st.warning("Adicione dados na planilha primeiro.")
+        st.warning("Adicione dados na aba 'clientes' da planilha primeiro.")
 
     if st.session_state.pdf_gerado and os.path.exists(st.session_state.pdf_gerado):
         with open(st.session_state.pdf_gerado, "rb") as f:
@@ -303,7 +313,6 @@ elif aba == "📊 Histórico":
     cols_h = ["ID", "Data", "Cliente", "Total", "Status"]
     df_h = carregar_aba_sheets("orcamentos", cols_h)
     
-    df_h.columns = df_h.columns.str.strip()
     cli_col = next((c for c in df_h.columns if c.lower() == 'cliente'), None)
     
     if not df_h.empty and cli_col:
