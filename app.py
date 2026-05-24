@@ -223,11 +223,39 @@ if aba == "🏠 Painel Principal":
                 if visitas_futuras == 0:
                     st.info("Nenhuma visita agendada para os próximos dias.")
 
-# --- 👥 MODULO 2: CLIENTES ---
+# --- 👥 MODULO 2: CLIENTES (COM CADASTRO E EDIÇÃO) ---
 elif aba == "👥 Clientes":
     st.title("👥 Meus Clientes")
     df_c = carregar_aba_sheets("clientes")
     
+    # FORMULÁRIO DE NOVO CADASTRO
+    with st.expander("👤 Cadastrar Novo Cliente"):
+        with st.form("cadastro_cliente", clear_on_submit=True):
+            cad_nome = st.text_input("Nome Completo do Cliente")
+            cad_whats = st.text_input("WhatsApp (Com DDD)")
+            cad_end = st.text_input("Endereço Completo")
+            
+            if st.form_submit_button("💾 Salvar Novo Cliente"):
+                if cad_nome.strip():
+                    p_cad = {
+                        "spreadsheet_id": SPREADSHEET_ID,
+                        "aba": "clientes",
+                        "acao": "criar",
+                        "novo_nome": cad_nome,
+                        "novo_whats": cad_whats,
+                        "novo_end": cad_end
+                    }
+                    with st.spinner("Gravando dados..."):
+                        if enviar_dados_sheets(p_cad):
+                            st.success("Cliente cadastrado com sucesso!")
+                            st.cache_data.clear()
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.error("Erro ao salvar. Verifique o Apps Script.")
+                else:
+                    st.warning("O campo 'Nome' é obrigatório.")
+                    
     st.write("### Lista de Clientes Registrados")
     if not df_c.empty:
         c_nome = next((c for c in df_c.columns if c.lower() == 'nome'), df_c.columns[0])
@@ -259,7 +287,7 @@ elif aba == "👥 Clientes":
                             
                             if st.form_submit_button("💾 Salvar permanentemente"):
                                 with st.spinner("Salvando..."):
-                                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "clientes", "nome_original": nome_orig, "novo_nome": n_n, "novo_whats": n_w, "novo_end": n_e}
+                                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "clientes", "acao": "editar", "nome_original": nome_orig, "novo_nome": n_n, "novo_whats": n_w, "novo_end": n_e}
                                     if enviar_dados_sheets(p):
                                         st.success("Alterado!")
                                         st.cache_data.clear()
@@ -268,14 +296,13 @@ elif aba == "👥 Clientes":
     else:
         st.info("Nenhum cliente listado.")
 
-# --- 🛠️ MODULO 3: AGENDA (AGENDAR E EDITAR) ---
+# --- 🛠️ MODULO 3: AGENDA ---
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
     
     df_cl = carregar_aba_sheets("clientes")
     df_v = carregar_aba_sheets("visitas")
     
-    # Formulário para criar agendamento
     with st.expander("📅 Novo Agendamento Técnico"):
         if not df_cl.empty:
             c_nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
@@ -342,7 +369,7 @@ elif aba == "💰 Novo Orçamento":
         id_f = get_next_id()
         st.subheader(f"📄 Orçamento Nº: {id_f}")
         lista_clientes = [n for n in df_cl[nome_col].unique() if str(n).strip()]
-        esc = st.selectbox("Cliente", [""] + lista_clientes)
+        esc = st.selectbox("Cliente", [""] + list(lista_clientes))
         txt_ap = st.text_area("Escopo do Serviço")
         
         df_b = pd.DataFrame([{"Serviço": "", "Qtd": 1, "Valor Unit. (R$)": 0.0}])
@@ -364,7 +391,7 @@ elif aba == "💰 Novo Orçamento":
         with open(st.session_state.pdf_gerado, "rb") as f:
             st.download_button("📩 Baixar PDF", f, file_name=st.session_state.pdf_gerado)
 
-# --- 📊 MODULO 5: HISTÓRICO DE ORÇAMENTOS (MUDAR STATUS) ---
+# --- 📊 MODULO 5: HISTÓRICO ---
 elif aba == "📊 Histórico":
     st.title("📊 Histórico de Orçamentos")
     df_h = carregar_aba_sheets("orcamentos")
@@ -386,7 +413,6 @@ elif aba == "📊 Histórico":
                         st.write(f"**Orçamento Nº {id_orc_atual} — {r[cli_col]}**")
                         st.write(f"Investimento: R$ {t_txt} | Status Atual: **{s_txt}**")
                         
-                        # Controle profissional para fechar orçamento
                         novo_status = st.selectbox(
                             "Alterar Status comercial:",
                             ["Pendente", "Aprovado", "Cancelado"],
@@ -398,7 +424,7 @@ elif aba == "📊 Histórico":
                             if st.button("💾 Confirmar Mudança", key=f"btn_{id_orc_atual}"):
                                 p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "orcamentos", "id": id_orc_atual, "novo_status": novo_status}
                                 if enviar_dados_sheets(p):
-                                    st.success("Planilha atualizada!")
+                                    st.success("Planilha updated!")
                                     st.cache_data.clear()
                                     time.sleep(0.5)
                                     st.rerun()
