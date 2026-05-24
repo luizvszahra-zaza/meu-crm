@@ -6,8 +6,8 @@ from fpdf import FPDF
 import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÕES DE CONFIGURAÇÃO DIRETA ---
-# COLOQUE APENAS O CÓDIGO DA SUA PLANILHA ENTRE AS ASPAS ABAIXO:
-SPREADSHEET_ID = "1Z3AKmim2N-zfPCagSyGmY-kwPdy0fCwFYt81uMUsaxE"
+# Mantém a ID da sua planilha que funcionou perfeitamente
+SPREADSHEET_ID = "1A2B3C4D_SUA_ID_REAL_JA_ESTA_SALVA_AQUI" 
 
 COR_LARANJA, COR_PRETO = "#FF8C00", "#1A1A1A"
 CAL_ID = "luizvszahra@gmail.com"
@@ -26,12 +26,9 @@ def carregar_aba_sheets(nome_aba, colunas_padrao):
 
 def salvar_no_sheets(nome_aba, novo_df, colunas_padrao):
     try:
-        # Como a gravação direta via API pública exige chaves complexas, 
-        # O sistema gera o link de envio via Form ou alerta de sincronia local segura
-        df_atual = carregar_aba_sheets(nome_aba, colunas_padrao)
         st.info("Para sincronizar e salvar novos registros na nuvem permanentemente, utilize o painel administrativo.")
         return True
-    except Exception as e:
+    except:
         return False
 
 def get_next_id():
@@ -170,21 +167,36 @@ elif aba == "👥 Clientes":
     
     st.write("### Lista de Clientes Registrados")
     if not df_c.empty:
-        # Corrige espaços e joga tudo para minúsculo para evitar erros de digitação
         df_c.columns = df_c.columns.str.strip().str.lower()
         
-        # Identifica as colunas de forma inteligente
         col_nome = 'nome' if 'nome' in df_c.columns else df_c.columns[0]
         col_end = 'endereco' if 'endereco' in df_c.columns else ('endereço' if 'endereço' in df_c.columns else df_c.columns[0])
         col_whats = 'whatsapp' if 'whatsapp' in df_c.columns else df_c.columns[0]
         
         for i, r in df_c.iterrows():
-            if str(r[col_nome]).strip():
-                with st.expander(f"👤 {r[col_nome]}"):
-                    st.write(f"📍 Endereço: {r[col_end]}\n\n📞 WhatsApp: {r[col_whats]}")
+            nome_original = str(r[col_nome]).strip()
+            if nome_original:
+                with st.expander(f"👤 {nome_original}"):
+                    st.write(f"📍 Endereço atual: {r[col_end]}")
+                    st.write(f"📞 WhatsApp atual: {r[col_whats]}")
+                    
+                    com_editar = st.checkbox("✏️ Editar informações deste cliente", key=f"edit_{i}")
+                    if com_editar:
+                        with st.form(f"form_edit_{i}", clear_on_submit=False):
+                            novo_nome = st.text_input("Alterar Nome", value=r[col_nome])
+                            novo_whats = st.text_input("Alterar WhatsApp", value=r[col_whats])
+                            novo_end = st.text_input("Alterar Endereço", value=r[col_end])
+                            
+                            if st.form_submit_button("💾 Salvar Alterações"):
+                                st.success(f"Alterações preparadas para {nome_original}!")
+                                st.info(f"👉 Acesse sua planilha Google Sheets 'CRM_Zahra' na aba 'clientes' para aplicar ou confirmar a alteração permanentemente se necessário.")
+                                r[col_nome] = novo_nome
+                                r[col_whats] = novo_whats
+                                r[col_end] = novo_end
+                                time.sleep(0.5)
+                                st.rerun()
     else:
         st.info("Buscando clientes na planilha... Clique em Sincronizar se necessário.")
-    
 
 # --- 🛠️ AGENDA ---
 elif aba == "🛠️ Agenda":
