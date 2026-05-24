@@ -46,6 +46,31 @@ def enviar_whatsapp(nome, tel, dt, hr, ender):
     return "https://api.whatsapp.com/send?phone=" + num + "&text=" + urllib.parse.quote(m)
 
 def calc_maps(ender):
-    if not ender: 
-        return "#"
-    return "http://googleusercontent
+    if not ender: return "#"
+    return "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote(str(ender))
+
+# --- ESTADOS INTERNOS ---
+if 'orc_edit' not in st.session_state: st.session_state.orc_edit = None
+if 'vis_edit' not in st.session_state: st.session_state.vis_edit = None
+if 'ultimo_agendado' not in st.session_state: st.session_state.ultimo_agendado = None
+if 'pdf_gerado' not in st.session_state: st.session_state.pdf_gerado = None
+if 'aba_atual' not in st.session_state: st.session_state.aba_atual = "🏠 Painel Principal"
+
+# --- MOTOR DE PDF ---
+class PDF_Zahra(FPDF):
+    def header(self):
+        self.set_fill_color(255, 140, 0)
+        self.rect(0, 0, 210, 35, 'F')
+        self.set_text_color(255, 255, 255)
+        self.set_font("Arial", "B", 20)
+        self.cell(0, 10, "TECNICO ZAHRA", ln=True, align="L")
+        self.set_font("Arial", "", 10)
+        self.cell(0, 5, "Solucoes Eletricas com Padrao Profissional", ln=True, align="L")
+        self.ln(15)
+
+def out_pdf(idx, dt, cli, ender, apr, items, tot):
+    try:
+        pdf = PDF_Zahra()
+        pdf.add_page()
+        pdf.set_y(40)
+        pdf.
