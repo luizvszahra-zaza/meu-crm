@@ -90,6 +90,4 @@ class PDF_Zahra(FPDF):
         self.set_font("Arial", "", 10)
         msg = "Solucoes Eletricas Profissionais"
         self.cell(0, 5, msg, ln=True)
-        self.ln(15)
-
-def out_pdf(idx, dt, cli, ender
+        self.ln(
