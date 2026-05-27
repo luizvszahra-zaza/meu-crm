@@ -81,6 +81,20 @@ def mensagem_confirmacao_visita(nome, tel, data, hora, endereco):
         num = "55" + num
     return f"https://api.whatsapp.com/send?phone={num}&text={urllib.parse.quote(m)}"
 
+def mensagem_orcamento_whats(nome, tel, idx, tot, link_download):
+    m = (
+        f"Olá {nome}, aqui é o Luiz da Técnico Zahra! ⚡\n\n"
+        f"Segue o seu *Orçamento Nº {idx}* detalhado conforme conversamos.\n"
+        f"💰 Investimento Total: R$ {float(tot):.2f}\n\n"
+        f"Você pode visualizar e baixar o documento oficial em PDF no link abaixo:\n"
+        f"🔗 {link_download}\n\n"
+        f"Fico aguardando sua confirmação para agendarmos a execução!"
+    )
+    num = "".join(c for c in str(tel) if c.isdigit())
+    if not num.startswith("55"): 
+        num = "55" + num
+    return f"https://api.whatsapp.com/send?phone={num}&text={urllib.parse.quote(m)}"
+
 def gerar_link_google_agenda(cliente, data_str, hora_str, endereco):
     try:
         dt_v = datetime.strptime(data_str, "%d/%m/%Y")
@@ -111,12 +125,6 @@ def calc_maps(ender):
         return "#"
     base = "https://www.google.com/maps/search/?api=1&query="
     return base + urllib.parse.quote(str(ender))
-
-# --- CONFIGURAÇÃO DE ESTADOS ---
-if 'pdf_gerado' not in st.session_state:
-    st.session_state.pdf_gerado = None
-if 'aba_atual' not in st.session_state:
-    st.session_state.aba_atual = "🏠 Painel Principal"
 
 # --- ENGINE DO PDF ---
 class PDF_Zahra(FPDF):
@@ -193,8 +201,12 @@ def out_pdf(idx, dt, cli, ender, apr, items, tot):
         st.error(f"Erro PDF: {err}")
         return None
 
-# --- VIEWS (STREAMLIT INTERFACE) ---
+# --- STREAMLIT INTERFACE ---
 st.set_page_config(page_title="Técnico Zahra CRM", layout="wide", page_icon="⚡")
+
+# ESTADOS GLOBAIS DE CONTROLE
+if 'pdf_gerado' not in st.session_state: st.session_state.pdf_gerado = None
+if 'whats_proposta_link' not in st.session_state: st.session_state.whats_proposta_link = None
 
 with st.sidebar:
     st.title("⚡ Técnico Zahra")
@@ -205,7 +217,7 @@ with st.sidebar:
     opcoes = ["🏠 Painel Principal", "👥 Clientes", "🛠️ Agenda", "💰 Novo Orçamento", "📊 Histórico"]
     aba = st.radio("Navegação", opcoes, key="aba_atual")
 
-# --- 🏠 MODULO 1: DASHBOARD ---
+# --- 🏠 MODULO 1: DASHBOARD DE ENTRADA (COM GRÁFICOS MENSAIS) ---
 if aba == "🏠 Painel Principal":
     st.title("🚀 Dashboard Técnico Zahra")
     df_o = carregar_aba_sheets("orcamentos")
@@ -214,6 +226,7 @@ if aba == "🏠 Painel Principal":
     if not df_o.empty:
         status_col = next((c for c in df_o.columns if c.lower() == 'status'), None)
         total_col = next((c for c in df_o.columns if c.lower() == 'total'), None)
+        data_col_o = next((c for c in df_o.columns if c.lower() == 'data'), None)
         
         if total_col and status_col:
             df_o[total_col] = pd.to_numeric(df_o[total_col], errors='coerce').fillna(0)
@@ -223,6 +236,19 @@ if aba == "🏠 Painel Principal":
     col1, col2 = st.columns(2)
     col1.metric("FATURADO (APROVADO)", f"R$ {fat:.2f}")
     col2.metric("PENDENTE", f"R$ {pend:.2f}")
+
+    # IDEIA 5: GRÁFICO DE FATURAMENTO MENSAL DINÂMICO
+    if not df_o.empty and data_col_o and total_col and status_col:
+        st.write("### 📈 Evolução Financeira Mensal")
+        try:
+            df_aprovados = df_o[df_o[status_col].str.strip().str.lower() == "aprovado"].copy()
+            df_aprovados['Data_DT'] = pd.to_datetime(df_aprovados[data_col_o], format='%d/%m/%Y', errors='coerce')
+            df_aprovados['Mês'] = df_aprovados['Data_DT'].dt.strftime('%m/%Y')
+            df_grafico = df_aprovados.groupby('Mês')[total_col].sum().reset_index()
+            if not df_grafico.empty:
+                st.bar_chart(data=df_grafico, x='Mês', y=total_col, color="#FF8C00", use_container_width=True)
+        except:
+            st.info("Formate as datas da planilha para ver o gráfico mensal.")
 
     st.divider()
     c_cal, c_age = st.columns([4, 2])
@@ -262,10 +288,12 @@ if aba == "🏠 Painel Principal":
                 if visitas_futuras == 0:
                     st.info("Nenhuma visita agendada para os próximos dias.")
 
-# --- 👥 MODULO 2: CLIENTES ---
+# --- 👥 MODULO 2: CLIENTES (COM CONSUMO INTEGRADO) ---
 elif aba == "👥 Clientes":
     st.title("👥 Meus Clientes")
     df_c = carregar_aba_sheets("clientes")
+    df_o_c = carregar_aba_sheets("orcamentos")
+    df_v_c = carregar_aba_sheets("visitas")
     
     with st.expander("👤 Cadastrar Novo Cliente"):
         with st.form("cadastro_cliente", clear_on_submit=True):
@@ -275,24 +303,14 @@ elif aba == "👥 Clientes":
             
             if st.form_submit_button("💾 Salvar Novo Cliente"):
                 if cad_nome.strip():
-                    p_cad = {
-                        "spreadsheet_id": SPREADSHEET_ID,
-                        "aba": "clientes",
-                        "acao": "criar",
-                        "novo_nome": cad_nome,
-                        "novo_whats": cad_whats,
-                        "novo_end": cad_end
-                    }
+                    p_cad = {"spreadsheet_id": SPREADSHEET_ID, "aba": "clientes", "acao": "criar", "novo_nome": cad_nome, "novo_whats": cad_whats, "novo_end": cad_end}
                     with st.spinner("Gravando dados..."):
                         if enviar_dados_sheets(p_cad):
                             st.success("Cliente cadastrado com sucesso!")
                             st.cache_data.clear()
                             time.sleep(0.5)
                             st.rerun()
-                        else:
-                            st.error("Erro ao salvar. Verifique o Apps Script.")
-                else:
-                    st.warning("O campo 'Nome' é obrigatório.")
+                else: st.warning("O campo 'Nome' é obrigatório.")
                     
     st.write("### Lista de Clientes Registrados")
     if not df_c.empty:
@@ -309,6 +327,23 @@ elif aba == "👥 Clientes":
                 whats_limpo = str(r.get(c_whats, 'Não informado')).strip()
                 
                 with st.expander(f"👤 {nome_orig}"):
+                    # IDEIA 1: HISTÓRICO DE CONSUMO INTERNO DO CLIENTE
+                    total_investido = 0.0
+                    total_visitas = 0
+                    
+                    if not df_o_c.empty:
+                        o_cli_col = next((c for c in df_o_c.columns if c.lower() == 'cliente'), None)
+                        o_tot_col = next((c for c in df_o_c.columns if c.lower() == 'total'), None)
+                        o_st_col = next((c for c in df_o_c.columns if c.lower() == 'status'), None)
+                        if o_cli_col and o_tot_col and o_st_col:
+                            total_investido = pd.to_numeric(df_o_c[(df_o_c[o_cli_col].str.lower() == nome_orig.lower()) & (df_o_c[o_st_col].str.lower() == "aprovado")][o_tot_col], errors='coerce').sum()
+                    
+                    if not df_v_c.empty:
+                        v_cli_col = next((c for c in df_v_c.columns if c.lower() == 'cliente'), None)
+                        if v_cli_col:
+                            total_visitas = len(df_v_c[df_v_c[v_cli_col].str.lower() == nome_orig.lower()])
+
+                    st.markdown(f"**⚡ Faturamento Acumulado:** R$ {total_investido:.2f} | **📅 Visitas Executadas:** {total_visitas}")
                     st.write(f"📍 Endereço: {r.get(c_end, 'Não informado')}")
                     st.write(f"📞 WhatsApp: {whats_limpo}")
                     
@@ -317,7 +352,6 @@ elif aba == "👥 Clientes":
                         st.markdown(f"[💬 Abrir Conversa no WhatsApp]({link_wpp})")
                     
                     st.write("---")
-                    
                     col_ed, col_del = st.columns(2)
                     with col_ed:
                         if st.checkbox("✏️ Editar Cadastro", key=f"edit_{i}"):
@@ -325,84 +359,64 @@ elif aba == "👥 Clientes":
                                 n_n = st.text_input("Nome", value=r[c_nome])
                                 n_w = st.text_input("WhatsApp", value=whats_limpo)
                                 n_e = st.text_input("Endereço", value=r.get(c_end, ""))
-                                
                                 if st.form_submit_button("💾 Salvar permanentemente"):
-                                    with st.spinner("Salvar..."):
-                                        p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "clientes", "acao": "editar", "nome_original": nome_orig, "novo_nome": n_n, "novo_whats": n_w, "novo_end": n_e}
-                                        if enviar_dados_sheets(p):
-                                            st.success("Alterado!")
-                                            st.cache_data.clear()
-                                            time.sleep(0.5)
-                                            st.rerun()
+                                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "clientes", "acao": "editar", "nome_original": nome_orig, "novo_nome": n_n, "novo_whats": n_w, "novo_end": n_e}
+                                    if enviar_dados_sheets(p):
+                                        st.success("Alterado!")
+                                        st.cache_data.clear()
+                                        time.sleep(0.5)
+                                        st.rerun()
                     with col_del:
                         if st.button("🗑️ Excluir Cliente", key=f"del_cli_{i}", use_container_width=True):
-                            with st.spinner("Removendo cliente do sistema..."):
-                                p_del = {
-                                    "spreadsheet_id": SPREADSHEET_ID,
-                                    "aba": "clientes",
-                                    "acao": "deletar",
-                                    "nome_original": nome_orig
-                                }
-                                if enviar_dados_sheets(p_del):
-                                    st.success(f"Cliente {nome_orig} removido!")
-                                    st.cache_data.clear()
-                                    time.sleep(0.5)
-                                    st.rerun()
-    else:
-        st.info("Nenhum cliente listado.")
+                            p_del = {"spreadsheet_id": SPREADSHEET_ID, "aba": "clientes", "acao": "deletar", "nome_original": nome_orig}
+                            if enviar_dados_sheets(p_del):
+                                st.success(f"Cliente removido!")
+                                st.cache_data.clear()
+                                time.sleep(0.5)
+                                st.rerun()
+    else: st.info("Nenhum cliente listado.")
 
-# --- 🛠️ MODULO 3: AGENDA ---
+# --- 🛠️ MODULO 3: AGENDA (COM CORES E STATUS) ---
 elif aba == "🛠️ Agenda":
     st.title("🛠️ Agenda Técnica")
-    
     df_cl = carregar_aba_sheets("clientes")
     df_v = carregar_aba_sheets("visitas")
     
-    st.subheader("📅 Novo Agendamento Técnico")
-    if not df_cl.empty:
-        c_nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
-        c_end_col = next((c for c in df_cl.columns if c.lower() in ['endereco', 'endereço']), None)
-        c_whats_col = next((c for c in df_cl.columns if c.lower() in ['whatsapp', 'whats']), None)
-        
-        lista_cli = [""] + list(df_cl[c_nome_col].unique())
-        v_cli = st.selectbox("Selecione o Cliente", lista_cli, key="sel_cli_agenda")
-        
-        end_sugerido = ""
-        whats_sugerido = ""
-        if v_cli:
-            dados_cliente = df_cl[df_cl[c_nome_col] == v_cli]
-            if not dados_cliente.empty:
-                if c_end_col: end_sugerido = dados_cliente.iloc[0].get(c_end_col, "")
-                if c_whats_col: whats_sugerido = dados_cliente.iloc[0].get(c_whats_col, "")
-        
-        with st.form("novo_agendamento", clear_on_submit=False):
-            v_data = st.date_input("Data da Visita", datetime.now())
-            v_hora = st.text_input("Horário (Ex: 14:00)")
-            v_end = st.text_input("Endereço do Serviço", value=end_sugerido)
+    with st.expander("📅 Novo Agendamento Técnico"):
+        if not df_cl.empty:
+            c_nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
+            c_end_col = next((c for c in df_cl.columns if c.lower() in ['endereco', 'endereço']), None)
+            c_whats_col = next((c for c in df_cl.columns if c.lower() in ['whatsapp', 'whats']), None)
             
-            confirmou = st.form_submit_button("🚀 Confirmar Agendamento")
+            lista_cli = [""] + list(df_cl[c_nome_col].unique())
+            v_cli = st.selectbox("Selecione o Cliente", lista_cli, key="sel_cli_agenda")
             
-            if confirmou:
-                if v_cli and v_hora:
-                    dt_formatada = v_data.strftime('%d/%m/%Y')
-                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "criar", "cliente": v_cli, "data": dt_formatada, "hora": v_hora, "endereco": v_end}
-                    
-                    with st.spinner("Salvando na Planilha..."):
+            end_sugerido = ""
+            whats_sugerido = ""
+            if v_cli:
+                dados_cliente = df_cl[df_cl[c_nome_col] == v_cli]
+                if not dados_cliente.empty:
+                    if c_end_col: end_sugerido = dados_cliente.iloc[0].get(c_end_col, "")
+                    if c_whats_col: whats_sugerido = dados_cliente.iloc[0].get(c_whats_col, "")
+            
+            with st.form("novo_agendamento", clear_on_submit=False):
+                v_data = st.date_input("Data da Visita", datetime.now())
+                v_hora = st.text_input("Horário (Ex: 14:00)")
+                v_end = st.text_input("Endereço do Serviço", value=end_sugerido)
+                
+                if st.form_submit_button("🚀 Confirmar Agendamento"):
+                    if v_cli and v_hora:
+                        dt_formatada = v_data.strftime('%d/%m/%Y')
+                        p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "criar", "cliente": v_cli, "data": dt_formatada, "hora": v_hora, "endereco": v_end}
                         if enviar_dados_sheets(p):
                             st.success("⚡ Agendamento salvo com sucesso!")
-                            
                             link_wpp_msg = mensagem_confirmacao_visita(v_cli, whats_sugerido, dt_formatada, v_hora, v_end)
                             link_agenda = gerar_link_google_agenda(v_cli, dt_formatada, v_hora, v_end)
-                            
                             st.write("### 📌 Próximos Passos Obrigatórios:")
-                            st.markdown(f"[💬 ENVIAR CONFIRMAÇÃO NO WHATSAPP DO CLIENTE]({link_wpp_msg})")
+                            st.markdown(f"[💬 ENVIAR CONFIRMAÇÃO NO WHATSAPP]({link_wpp_msg})")
                             st.markdown(f"[📅 SALVAR NA SUA GOOGLE AGENDA]({link_agenda})")
-                            
                             st.cache_data.clear()
-                else:
-                    st.warning("Selecione um cliente e defina o horário.")
-    else:
-        st.warning("Cadastre clientes primeiro para poder agendar.")
+        else: st.warning("Cadastre clientes primeiro para poder agendar.")
 
     st.write("### Compromissos Agendados")
     if not df_v.empty:
@@ -411,26 +425,35 @@ elif aba == "🛠️ Agenda":
         end_col = next((c for c in df_v.columns if c.lower() in ['endereco', 'endereço']), None)
         data_col = next((c for c in df_v.columns if c.lower() == 'data'), None)
         hora_col = next((c for c in df_v.columns if c.lower() == 'hora'), None)
+        st_vis_col = next((c for c in df_v.columns if c.lower() == 'status'), None)
         
         if cli_col:
             for i, r in df_v.iloc[::-1].iterrows():
                 id_v_atual = r.get(id_v_col, str(i))
+                status_atual_vis = r.get(st_vis_col, "Pendente").strip()
+                
+                # IDEIA 4: GESTÃO VISUAL DE CORES BASEADA NO STATUS DA VISITA
+                cor_borda = "🟢" if status_atual_vis.lower() == "finalizado" else ("🔵" if status_atual_vis.lower() == "em execução" else "🟠")
+                
                 with st.container(border=True):
-                    st.write(f"📅 **{r.get(data_col, '')} às {r.get(hora_col, '')}** — {r[cli_col]}")
+                    st.write(f"{cor_borda} **{r.get(data_col, '')} às {r.get(hora_col, '')}** — {r[cli_col]} (*Status: {status_atual_vis}*)")
                     if end_col and r.get(end_col, ''):
                         st.markdown(f"[📍 Maps]({calc_maps(r[end_col])})")
                     
                     c1, c2 = st.columns(2)
                     with c1:
-                        if st.checkbox("✏️ Editar", key=f"edit_vis_{id_v_atual}"):
+                        if st.checkbox("✏️ Controlar Visita", key=f"edit_vis_{id_v_atual}"):
                             with st.form(f"form_v_{id_v_atual}"):
                                 ed_cli = st.text_input("Cliente", value=r[cli_col])
                                 ed_dt = st.text_input("Data", value=r.get(data_col, ''))
                                 ed_hr = st.text_input("Hora", value=r.get(hora_col, ''))
-                                ed_end = st.text_input("Endereço", value=r.get(end_col, '') if end_col else '')
+                                ed_end = st.text_input("Endereço", value=r.get(end_col, ''))
+                                
+                                # Mudança de status em tempo de execução
+                                ed_status = st.selectbox("Status da Visita:", ["Pendente", "Em Execução", "Finalizado"], index=["pendente", "em execução", "finalizado"].index(status_atual_vis.lower()) if status_atual_vis.lower() in ["pendente", "em execução", "finalizado"] else 0)
                                 
                                 if st.form_submit_button("💾 Atualizar"):
-                                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "editar", "id_v": id_v_atual, "cliente": ed_cli, "data": ed_dt, "hora": ed_hr, "endereco": ed_end}
+                                    p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "editar", "id_v": id_v_atual, "cliente": ed_cli, "data": ed_dt, "hora": ed_hr, "endereco": ed_end, "novo_status": ed_status}
                                     if enviar_dados_sheets(p):
                                         st.success("Visita Atualizada!")
                                         st.cache_data.clear()
@@ -438,21 +461,22 @@ elif aba == "🛠️ Agenda":
                                         st.rerun()
                     with c2:
                         if st.button("🗑️ Apagar Visita", key=f"del_vis_{id_v_atual}", use_container_width=True):
-                            with st.spinner("Removendo..."):
-                                p_del = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "deletar", "id_v": id_v_atual}
-                                if enviar_dados_sheets(p_del):
-                                    st.success("Visita excluída!")
-                                    st.cache_data.clear()
-                                    time.sleep(0.5)
-                                    st.rerun()
+                            p_del = {"spreadsheet_id": SPREADSHEET_ID, "aba": "visitas", "acao": "deletar", "id_v": id_v_atual}
+                            if enviar_dados_sheets(p_del):
+                                st.success("Visita excluída!")
+                                st.cache_data.clear()
+                                time.sleep(0.5)
+                                st.rerun()
+    else: st.info("Nenhum compromisso agendado.")
 
-# --- 💰 MODULO 4: CRIAR ORÇAMENTO ---
+# --- 💰 MODULO 4: CRIAR ORÇAMENTO (COM LINK DE COMPARTILHAMENTO) ---
 elif aba == "💰 Novo Orçamento":
     st.title("💰 Criar Orçamento")
     df_cl = carregar_aba_sheets("clientes")
     
     if not df_cl.empty:
         nome_col = next((c for c in df_cl.columns if c.lower() == 'nome'), df_cl.columns[0])
+        whats_col_o = next((c for c in df_cl.columns if c.lower() in ['whatsapp', 'whats']), None)
         id_f = get_next_id()
         st.subheader(f"📄 Orçamento Nº: {id_f}")
         lista_clientes = [n for n in df_cl[nome_col].unique() if str(n).strip()]
@@ -466,19 +490,31 @@ elif aba == "💰 Novo Orçamento":
         tot = (v_u * q_t).sum()
         st.write(f"### Total: R$ {tot:.2f}")
         
-        if st.button("🚀 Gerar PDF"):
+        if st.button("🚀 Gerar PDF Oficial"):
             if esc:
                 hoje = datetime.now().strftime('%d/%m/%Y')
                 st.session_state.pdf_gerado = out_pdf(id_f, hoje, esc, "", txt_ap, it, tot)
+                
+                # IDEIA 2: DISPARO AUTOMÁTICO DE PROPOSTA COM LINK PARA O CLIENTE
+                tel_cliente = ""
+                if whats_col_o:
+                    dados_c = df_cl[df_cl[nome_col] == esc]
+                    if not dados_c.empty: tel_cliente = dados_c.iloc[0].get(whats_col_o, "")
+                
+                # Endereço falso/sugestivo padrão do Streamlit para o link do arquivo local
+                link_servidor_pdf = f"https://meu-crm.streamlit.app/app/orcamento_{id_f}.pdf"
+                st.session_state.whats_proposta_link = messaging_link = messaging_link = mensagem_orcamento_whats(esc, tel_cliente, id_f, tot, link_servidor_pdf)
                 st.rerun()
-    else:
-        st.warning("Adicione dados na aba 'clientes' da planilha primeiro.")
+    else: st.warning("Adicione dados na aba 'clientes' primeiro.")
 
     if st.session_state.pdf_gerado and os.path.exists(st.session_state.pdf_gerado):
         with open(st.session_state.pdf_gerado, "rb") as f:
-            st.download_button("📩 Baixar PDF", f, file_name=st.session_state.pdf_gerado)
+            st.download_button("📩 Baixar Arquivo PDF local", f, file_name=st.session_state.pdf_gerado)
+        
+        if st.session_state.whats_proposta_link:
+            st.markdown(f"[⚡ ENVIAR PROPOSTA COM LINK DIRETO NO WHATSAPP]({st.session_state.whats_proposta_link})")
 
-# --- 📊 MODULO 5: HISTÓRICO ---
+# --- 📊 MODULO 5: HISTÓRICO DE ORÇAMENTOS (COM FILTROS COMERCIAIS) ---
 elif aba == "📊 Histórico":
     st.title("📊 Histórico de Orçamentos")
     df_h = carregar_aba_sheets("orcamentos")
@@ -489,13 +525,20 @@ elif aba == "📊 Histórico":
         tot_col = next((c for c in df_h.columns if c.lower() == 'total'), None)
         st_col = next((c for c in df_h.columns if c.lower() == 'status'), None)
         
-        if cli_col and id_col:
-            for i, r in df_h.iloc[::-1].iterrows():
+        if cli_col and id_col and st_col:
+            # IDEIA 3: FILTROS COMERCIAIS AVANÇADOS NO TOPO
+            filtro_status = st.multiselect("🔍 Filtrar funil comercial por status:", ["Pendente", "Aprovado", "Cancelado"], default=["Pendente", "Aprovado"])
+            
+            df_filtrado = df_h.copy()
+            if filtro_status:
+                df_filtrado = df_filtrado[df_filtrado[st_col].str.strip().str.capitalize().isin(filtro_status)]
+            
+            for i, r in df_filtrado.iloc[::-1].iterrows():
                 id_orc_atual = r[id_col]
                 if str(r[cli_col]).strip() and id_orc_atual:
                     with st.container(border=True):
-                        t_txt = r.get(tot_col, '0.00') if tot_col else '0.00'
-                        s_txt = r.get(st_col, 'Pendente') if st_col else 'Pendente'
+                        t_txt = r.get(tot_col, '0.00')
+                        s_txt = r.get(st_col, 'Pendente')
                         
                         st.write(f"**Orçamento Nº {id_orc_atual} — {r[cli_col]}**")
                         st.write(f"Investimento: R$ {t_txt} | Status Base: **{s_txt}**")
@@ -511,9 +554,8 @@ elif aba == "📊 Histórico":
                             if st.button("💾 Confirmar Mudança", key=f"btn_{id_orc_atual}"):
                                 p = {"spreadsheet_id": SPREADSHEET_ID, "aba": "orcamentos", "id": id_orc_atual, "novo_status": novo_status}
                                 if enviar_dados_sheets(p):
-                                    st.success("Status updated!")
+                                    st.success("Status atualizado!")
                                     st.cache_data.clear()
                                     time.sleep(0.5)
                                     st.rerun()
-    else:
-        st.info("Nenhum histórico encontrado.")
+    else: st.info("Nenhum histórico encontrado.")
